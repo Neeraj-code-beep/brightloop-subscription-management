@@ -29,4 +29,5 @@ analyticsRouter.get('/subscriptions', analyticsController.getSubscriptions.bind(
 
 // 6. Invoice & Payment Analytics
 analyticsRouter.get('/invoices', analyticsController.getInvoices.bind(analyticsController));
+analyticsRouter.get('/overdue', analyticsController.getOverdue.bind(analyticsController));
 analyticsRouter.get('/payments', analyticsController.getPayments.bind(analyticsController));

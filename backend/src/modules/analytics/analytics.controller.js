@@ -98,6 +98,18 @@ export class AnalyticsController {
     }
   }
 
+  async getOverdue(req, res, next) {
+    try {
+      const data = await analyticsService.getOverdueInvoices(req.query);
+      return successResponse(res, {
+        message: 'Overdue invoices analytics retrieved successfully',
+        data
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDashboard(req, res, next) {
     try {
       const data = await analyticsService.getDashboard();

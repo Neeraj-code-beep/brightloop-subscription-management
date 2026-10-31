@@ -540,6 +540,7 @@ describe('Analytics & Dashboard Module Suite', () => {
         '/api/v1/analytics/customers',
         '/api/v1/analytics/subscriptions',
         '/api/v1/analytics/invoices',
+        '/api/v1/analytics/overdue',
         '/api/v1/analytics/payments',
         '/api/v1/analytics/dashboard'
       ];
@@ -555,6 +556,255 @@ describe('Analytics & Dashboard Module Suite', () => {
     it('Unauthenticated requests are rejected with 401 Unauthorized', async () => {
       const res = await request(app).get('/api/v1/analytics/summary');
       expect(res.status).toBe(401);
+    });
+  });
+
+  // =========================================================================
+  // 10. OVERDUE INVOICES & AR AGING
+  // =========================================================================
+  describe('10. GET /api/v1/analytics/overdue', () => {
+    it('calculates overdue metrics, aging buckets, and excludes paid, draft, void and zero-balance invoices', async () => {
+      const now = new Date();
+      const daysAgo = (n) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000);
+      const daysAhead = (n) => new Date(now.getTime() + n * 24 * 60 * 60 * 1000);
+
+      // Overdue 15 days (bucket 1-30) - $100 due
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'ISSUED',
+          dueDate: daysAgo(15),
+          totalAmount: '100.00',
+          amountPaid: '0.00',
+          amountDue: '100.00'
+        }
+      });
+
+      // Overdue 45 days (bucket 31-60) - $200 due
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'OPEN',
+          dueDate: daysAgo(45),
+          totalAmount: '300.00',
+          amountPaid: '100.00',
+          amountDue: '200.00'
+        }
+      });
+
+      // Overdue 75 days (bucket 61-90) - $300 due
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'OVERDUE',
+          dueDate: daysAgo(75),
+          totalAmount: '300.00',
+          amountPaid: '0.00',
+          amountDue: '300.00'
+        }
+      });
+
+      // Overdue 120 days (bucket 90Plus) - $400 due
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'OVERDUE',
+          dueDate: daysAgo(120),
+          totalAmount: '400.00',
+          amountPaid: '0.00',
+          amountDue: '400.00'
+        }
+      });
+
+      // EXCLUSION 1: Fully paid invoice with past due date -> MUST BE EXCLUDED
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'PAID',
+          dueDate: daysAgo(20),
+          totalAmount: '500.00',
+          amountPaid: '500.00',
+          amountDue: '0.00'
+        }
+      });
+
+      // EXCLUSION 2: Draft invoice with past due date -> MUST BE EXCLUDED
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'DRAFT',
+          dueDate: daysAgo(20),
+          totalAmount: '500.00',
+          amountPaid: '0.00',
+          amountDue: '500.00'
+        }
+      });
+
+      // EXCLUSION 3: Void invoice -> MUST BE EXCLUDED
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'VOID',
+          dueDate: daysAgo(20),
+          totalAmount: '500.00',
+          amountPaid: '0.00',
+          amountDue: '500.00'
+        }
+      });
+
+      // EXCLUSION 4: Future due date (not overdue) -> MUST BE EXCLUDED
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'ISSUED',
+          dueDate: daysAhead(10),
+          totalAmount: '600.00',
+          amountPaid: '0.00',
+          amountDue: '600.00'
+        }
+      });
+
+      // EXCLUSION 5: Zero-balance invoice -> MUST BE EXCLUDED
+      await mockPrisma.invoice.create({
+        data: {
+          customerId,
+          status: 'PARTIALLY_PAID',
+          dueDate: daysAgo(10),
+          totalAmount: '200.00',
+          amountPaid: '200.00',
+          amountDue: '0.00'
+        }
+      });
+
+      const res = await request(app)
+        .get('/api/v1/analytics/overdue')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      const data = res.body.data;
+
+      // 4 overdue invoices: $100 + $200 + $300 + $400 = $1000.00
+      expect(data.totalOverdueInvoices).toBe(4);
+      expect(data.totalOverdueAmount).toBe('1000.00');
+
+      expect(data.agingBuckets.days1To30).toBe('100.00');
+      expect(data.agingBuckets.days31To60).toBe('200.00');
+      expect(data.agingBuckets.days61To90).toBe('300.00');
+      expect(data.agingBuckets.days90Plus).toBe('400.00');
+
+      expect(data.bucketCounts.days1To30).toBe(1);
+      expect(data.bucketCounts.days31To60).toBe(1);
+      expect(data.bucketCounts.days61To90).toBe(1);
+      expect(data.bucketCounts.days90Plus).toBe(1);
+
+      expect(data.invoices).toBeInstanceOf(Array);
+      expect(data.invoices.length).toBe(4);
+      expect(data.pagination.totalItems).toBe(4);
+    });
+
+    it('allows STAFF role access and returns 200', async () => {
+      const res = await request(app)
+        .get('/api/v1/analytics/overdue')
+        .set('Authorization', `Bearer ${staffToken}`);
+      expect(res.status).toBe(200);
+    });
+  });
+
+  // =========================================================================
+  // 11. FINANCIAL ACCURACY: REFUNDS DEDUPLICATION & SAFEAGGREGATE
+  // =========================================================================
+  describe('11. Revenue, Refunds & safeAggregate Correctness', () => {
+    it('properly accounts for multiple refunds without double-counting and ignores pending/failed refunds', async () => {
+      const now = new Date();
+
+      // Seed payment of $500
+      const payment = await mockPrisma.payment.create({
+        data: {
+          customerId,
+          amount: '500.00',
+          status: 'PARTIALLY_REFUNDED',
+          createdAt: now
+        }
+      });
+
+      // Refund 1: $100 SUCCEEDED
+      await mockPrisma.refund.create({
+        data: {
+          paymentId: payment.id,
+          amount: '100.00',
+          status: 'SUCCEEDED',
+          createdAt: now
+        }
+      });
+
+      // Refund 2: $50 SUCCEEDED (multiple partial refunds)
+      await mockPrisma.refund.create({
+        data: {
+          paymentId: payment.id,
+          amount: '50.00',
+          status: 'SUCCEEDED',
+          createdAt: now
+        }
+      });
+
+      // Refund 3: $80 FAILED -> MUST NOT BE COUNTED
+      await mockPrisma.refund.create({
+        data: {
+          paymentId: payment.id,
+          amount: '80.00',
+          status: 'FAILED',
+          createdAt: now
+        }
+      });
+
+      // Refund 4: $60 PENDING -> MUST NOT BE COUNTED
+      await mockPrisma.refund.create({
+        data: {
+          paymentId: payment.id,
+          amount: '60.00',
+          status: 'PENDING',
+          createdAt: now
+        }
+      });
+
+      // Payment 2: FAILED payment -> MUST NOT BE COUNTED IN REVENUE
+      await mockPrisma.payment.create({
+        data: {
+          customerId,
+          amount: '300.00',
+          status: 'FAILED',
+          createdAt: now
+        }
+      });
+
+      const res = await request(app)
+        .get('/api/v1/analytics/revenue?interval=monthly')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      const data = res.body.data;
+
+      // Gross collected: $500 (failed payment $300 excluded)
+      expect(data.totalCollected).toBe('500.00');
+      // Total refunded: $100 + $50 = $150 (FAILED $80 and PENDING $60 excluded; not doubled)
+      expect(data.totalRefunded).toBe('150.00');
+      // Net revenue: $500 - $150 = $350.00
+      expect(data.netRevenue).toBe('350.00');
+    });
+
+    it('safeAggregate propagates genuine database errors instead of silently swallowing them', async () => {
+      const { AnalyticsService } = await import('../src/modules/analytics/analytics.service.js');
+      const faultyModel = {
+        aggregate: async () => {
+          throw new Error('Connection lost to database');
+        }
+      };
+
+      const service = new AnalyticsService();
+      await expect(service.safeAggregate(faultyModel, { _sum: { amount: true } }))
+        .rejects
+        .toThrow('Connection lost to database');
     });
   });
 });

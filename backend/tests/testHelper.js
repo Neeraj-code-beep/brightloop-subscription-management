@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { setPrismaClient } from '../src/utils/prisma.js';
 import { hashPassword, generateAccessToken } from '../src/utils/crypto.js';
 
@@ -1411,9 +1412,35 @@ export function createMockPrisma() {
       findMany: async ({ where = {}, orderBy, select }) => {
         let list = [...state.refunds];
         if (where.paymentId) list = list.filter(r => r.paymentId === where.paymentId);
-        if (where.status) list = list.filter(r => r.status === where.status);
+        if (where.status) {
+          if (typeof where.status === 'string') list = list.filter(r => r.status === where.status);
+          else if (where.status.in) list = list.filter(r => where.status.in.includes(r.status));
+        }
+        if (where.createdAt) {
+          if (where.createdAt.gte) list = list.filter(r => new Date(r.createdAt) >= new Date(where.createdAt.gte));
+          if (where.createdAt.lte) list = list.filter(r => new Date(r.createdAt) <= new Date(where.createdAt.lte));
+        }
         const sorted = sortArray(list, orderBy);
         return sorted.map(r => projectSelect({ ...r }, select));
+      },
+      aggregate: async ({ where = {}, _sum = {} } = {}) => {
+        let list = [...state.refunds];
+        if (where.paymentId) list = list.filter(r => r.paymentId === where.paymentId);
+        if (where.status) {
+          if (typeof where.status === 'string') list = list.filter(r => r.status === where.status);
+          else if (where.status.in) list = list.filter(r => where.status.in.includes(r.status));
+        }
+        const sumResult = {};
+        for (const field of Object.keys(_sum)) {
+          let total = new Prisma.Decimal(0);
+          for (const item of list) {
+            if (item[field] !== undefined && item[field] !== null) {
+              total = total.plus(new Prisma.Decimal(item[field]));
+            }
+          }
+          sumResult[field] = total;
+        }
+        return { _sum: sumResult, _count: { _all: list.length } };
       },
       create: async ({ data, select }) => {
         const id = `ref_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

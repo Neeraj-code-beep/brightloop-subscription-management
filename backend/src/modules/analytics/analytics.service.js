@@ -67,30 +67,30 @@ export class AnalyticsService {
 
   /**
    * Helper to execute aggregate with fallback to findMany for mock environments
+   * Real database errors will propagate and will NOT be silently swallowed.
    */
   async safeAggregate(model, options) {
-    if (typeof model.aggregate === 'function') {
-      try {
-        return await model.aggregate(options);
-      } catch (err) {
-        // Fallback if aggregate fails
-      }
+    if (typeof model?.aggregate === 'function') {
+      return await model.aggregate(options);
     }
-    // In-memory fallback
-    const items = await model.findMany({ where: options.where || {} });
-    const _sum = {};
-    if (options._sum) {
-      for (const field of Object.keys(options._sum)) {
-        let total = new Prisma.Decimal(0);
-        for (const item of items) {
-          if (item[field] !== undefined && item[field] !== null) {
-            total = total.plus(new Prisma.Decimal(item[field]));
+    // Only fall back to in-memory summation if model.aggregate is not implemented (e.g. partial test mocks)
+    if (typeof model?.findMany === 'function') {
+      const items = await model.findMany({ where: options.where || {} });
+      const _sum = {};
+      if (options._sum) {
+        for (const field of Object.keys(options._sum)) {
+          let total = new Prisma.Decimal(0);
+          for (const item of items) {
+            if (item[field] !== undefined && item[field] !== null) {
+              total = total.plus(new Prisma.Decimal(item[field]));
+            }
           }
+          _sum[field] = total;
         }
-        _sum[field] = total;
       }
+      return { _sum, _count: { _all: items.length } };
     }
-    return { _sum, _count: { _all: items.length } };
+    return { _sum: {}, _count: { _all: 0 } };
   }
 
   /**
@@ -136,26 +136,27 @@ export class AnalyticsService {
         _sum: { amount: true, refundedAmount: true }
       }),
       this.safeAggregate(this.prisma.refund, {
-        where: { status: 'COMPLETED' },
+        where: { status: { in: ['SUCCEEDED', 'COMPLETED'] } },
         _sum: { amount: true }
       })
     ]);
 
     const totalInvoicedAmount = new Prisma.Decimal(invoiceAgg._sum?.totalAmount || 0);
-    // Total collected: payments net collected, or invoice amountPaid
-    const collectedFromPayments = new Prisma.Decimal(paymentAgg._sum?.amount || 0)
-      .minus(new Prisma.Decimal(paymentAgg._sum?.refundedAmount || 0));
-    const collectedFromInvoices = new Prisma.Decimal(invoiceAgg._sum?.amountPaid || 0);
-    const totalCollectedAmount = collectedFromPayments.greaterThan(0)
-      ? collectedFromPayments
-      : collectedFromInvoices;
-
-    const totalOutstandingAmount = new Prisma.Decimal(invoiceAgg._sum?.amountDue || 0);
     const refundedFromRefunds = new Prisma.Decimal(refundAgg._sum?.amount || 0);
     const refundedFromPayments = new Prisma.Decimal(paymentAgg._sum?.refundedAmount || 0);
+    // Authoritative refund source: Refund records first, payment refundedAmount only if no refund records exist
     const totalRefundedAmount = refundedFromRefunds.greaterThan(0)
       ? refundedFromRefunds
       : refundedFromPayments;
+
+    const grossCollectedFromPayments = new Prisma.Decimal(paymentAgg._sum?.amount || 0);
+    const netCollectedFromPayments = Prisma.Decimal.max(0, grossCollectedFromPayments.minus(totalRefundedAmount));
+    const collectedFromInvoices = new Prisma.Decimal(invoiceAgg._sum?.amountPaid || 0);
+    const totalCollectedAmount = grossCollectedFromPayments.greaterThan(0)
+      ? netCollectedFromPayments
+      : collectedFromInvoices;
+
+    const totalOutstandingAmount = new Prisma.Decimal(invoiceAgg._sum?.amountDue || 0);
 
     let collectionRate = '0.00';
     if (totalInvoicedAmount.greaterThan(0)) {
@@ -227,7 +228,7 @@ export class AnalyticsService {
       }),
       this.prisma.refund.findMany({
         where: {
-          status: 'COMPLETED',
+          status: { in: ['SUCCEEDED', 'COMPLETED'] },
           createdAt: { gte: start, lte: end }
         },
         select: { id: true, amount: true, createdAt: true }
@@ -241,7 +242,7 @@ export class AnalyticsService {
       }),
       this.prisma.refund.findMany({
         where: {
-          status: 'COMPLETED',
+          status: { in: ['SUCCEEDED', 'COMPLETED'] },
           createdAt: { gte: prevStart, lte: prevEnd }
         },
         select: { amount: true }
@@ -250,6 +251,7 @@ export class AnalyticsService {
 
     // Grouping into periods
     const periodsMap = new Map();
+    const hasRefundRecords = refunds.length > 0;
 
     for (const p of payments) {
       const key = getPeriodKey(p.createdAt, interval);
@@ -265,7 +267,10 @@ export class AnalyticsService {
       }
       const entry = periodsMap.get(key);
       entry.collected = entry.collected.plus(new Prisma.Decimal(p.amount || 0));
-      entry.refunded = entry.refunded.plus(new Prisma.Decimal(p.refundedAmount || 0));
+      // Only fall back to payment.refundedAmount if no actual Refund records exist in query window
+      if (!hasRefundRecords && p.refundedAmount) {
+        entry.refunded = entry.refunded.plus(new Prisma.Decimal(p.refundedAmount || 0));
+      }
       entry.paymentCount++;
     }
 
@@ -329,9 +334,13 @@ export class AnalyticsService {
     // Previous period aggregate
     let prevCollected = new Prisma.Decimal(0);
     let prevRefunded = new Prisma.Decimal(0);
+    const hasPrevRefundRecords = prevRefunds.length > 0;
+
     for (const p of prevPayments) {
       prevCollected = prevCollected.plus(new Prisma.Decimal(p.amount || 0));
-      prevRefunded = prevRefunded.plus(new Prisma.Decimal(p.refundedAmount || 0));
+      if (!hasPrevRefundRecords && p.refundedAmount) {
+        prevRefunded = prevRefunded.plus(new Prisma.Decimal(p.refundedAmount || 0));
+      }
     }
     for (const r of prevRefunds) {
       prevRefunded = prevRefunded.plus(new Prisma.Decimal(r.amount || 0));
@@ -453,7 +462,7 @@ export class AnalyticsService {
       churnedMrr: toDecimalString(churnedMrr),
       netMrrGrowth: toDecimalString(netMrrGrowth),
       historicalTrends,
-      limitations: 'Expansion and contraction MRR require historical plan change snapshots. One-time setup fees and proration adjustments are excluded from MRR calculations.'
+      limitations: 'Historical monthly MRR trend is based on currently active subscriptions created on or before each period end. Retrospective point-in-time MRR (factoring past subscription cancellations, past upgrades, or mid-cycle plan changes) is unsupported without an immutable event ledger. Expansion and contraction MRR require historical plan change snapshots. One-time setup fees and proration adjustments are excluded from MRR calculations.'
     };
   }
 
@@ -796,6 +805,130 @@ export class AnalyticsService {
   }
 
   /**
+   * 7. Overdue Invoices & AR Aging Report
+   * GET /api/v1/analytics/overdue
+   */
+  async getOverdueInvoices(queryParams = {}) {
+    const { customerId, page = 1, limit = 50, sortBy = 'dueDate', sortOrder = 'asc' } = queryParams;
+    const now = new Date();
+
+    const where = {
+      dueDate: { lt: now },
+      status: { notIn: ['DRAFT', 'VOID', 'PAID'] }
+    };
+
+    if (customerId) {
+      where.customerId = customerId;
+    }
+
+    const invoices = await this.prisma.invoice.findMany({
+      where,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            customerCode: true,
+            companyName: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      },
+      take: 10000,
+      orderBy: { [sortBy]: sortOrder.toLowerCase() === 'desc' ? 'desc' : 'asc' }
+    });
+
+    // Exclude zero-balance invoices (amountDue <= 0)
+    const overdueInvoices = invoices.filter(inv => {
+      const due = new Prisma.Decimal(inv.amountDue || 0);
+      return due.greaterThan(0);
+    });
+
+    let totalOverdueAmount = new Prisma.Decimal(0);
+    const agingBuckets = {
+      days1To30: new Prisma.Decimal(0),
+      days31To60: new Prisma.Decimal(0),
+      days61To90: new Prisma.Decimal(0),
+      days90Plus: new Prisma.Decimal(0)
+    };
+    const bucketCounts = {
+      days1To30: 0,
+      days31To60: 0,
+      days61To90: 0,
+      days90Plus: 0
+    };
+
+    const formattedInvoices = [];
+
+    for (const inv of overdueInvoices) {
+      const due = new Prisma.Decimal(inv.amountDue || 0);
+      totalOverdueAmount = totalOverdueAmount.plus(due);
+
+      const dueDate = new Date(inv.dueDate);
+      const diffMs = now.getTime() - dueDate.getTime();
+      const overdueDays = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+
+      let bucket = 'days1To30';
+      if (overdueDays > 90) {
+        bucket = 'days90Plus';
+      } else if (overdueDays > 60) {
+        bucket = 'days61To90';
+      } else if (overdueDays > 30) {
+        bucket = 'days31To60';
+      }
+
+      agingBuckets[bucket] = agingBuckets[bucket].plus(due);
+      bucketCounts[bucket]++;
+
+      formattedInvoices.push({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        customerId: inv.customerId,
+        customer: inv.customer ? {
+          id: inv.customer.id,
+          customerCode: inv.customer.customerCode,
+          name: inv.customer.companyName || `${inv.customer.firstName || ''} ${inv.customer.lastName || ''}`.trim() || 'Unnamed Customer',
+          email: inv.customer.email
+        } : null,
+        status: inv.status,
+        dueDate: inv.dueDate,
+        overdueDays,
+        agingBucket: bucket,
+        currency: inv.currency || 'INR',
+        totalAmount: toDecimalString(inv.totalAmount),
+        amountPaid: toDecimalString(inv.amountPaid),
+        amountDue: toDecimalString(due)
+      });
+    }
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 50);
+    const startIndex = (pageNum - 1) * limitNum;
+    const paginatedItems = formattedInvoices.slice(startIndex, startIndex + limitNum);
+
+    return {
+      totalOverdueInvoices: overdueInvoices.length,
+      totalOverdueAmount: toDecimalString(totalOverdueAmount),
+      agingBuckets: {
+        days1To30: toDecimalString(agingBuckets.days1To30),
+        days31To60: toDecimalString(agingBuckets.days31To60),
+        days61To90: toDecimalString(agingBuckets.days61To90),
+        days90Plus: toDecimalString(agingBuckets.days90Plus)
+      },
+      bucketCounts,
+      invoices: paginatedItems,
+      pagination: {
+        totalItems: overdueInvoices.length,
+        totalPages: Math.ceil(overdueInvoices.length / limitNum) || 1,
+        currentPage: pageNum,
+        limit: limitNum
+      },
+      generatedAt: now.toISOString()
+    };
+  }
+
+  /**
    * 7. Payment Analytics
    * GET /api/v1/analytics/payments
    */
@@ -803,14 +936,8 @@ export class AnalyticsService {
     const { interval = 'monthly' } = queryParams;
 
     const payments = await this.prisma.payment.findMany({
-      select: {
-        id: true,
-        status: true,
-        amount: true,
-        refundedAmount: true,
-        invoiceId: true,
-        customerId: true,
-        createdAt: true
+      include: {
+        refunds: true
       }
     });
 
@@ -827,7 +954,16 @@ export class AnalyticsService {
       if (s === 'SUCCEEDED' || s === 'PARTIALLY_REFUNDED' || s === 'REFUNDED') {
         successfulPayments++;
         const amt = new Prisma.Decimal(p.amount || 0);
-        const ref = new Prisma.Decimal(p.refundedAmount || 0);
+        let ref = new Prisma.Decimal(0);
+        if (p.refunds && Array.isArray(p.refunds) && p.refunds.length > 0) {
+          for (const r of p.refunds) {
+            if (r.status === 'SUCCEEDED' || r.status === 'COMPLETED') {
+              ref = ref.plus(new Prisma.Decimal(r.amount || 0));
+            }
+          }
+        } else if (p.refundedAmount) {
+          ref = new Prisma.Decimal(p.refundedAmount);
+        }
         totalCollected = totalCollected.plus(amt);
         totalRefunded = totalRefunded.plus(ref);
 
