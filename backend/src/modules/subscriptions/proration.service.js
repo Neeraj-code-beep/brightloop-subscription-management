@@ -18,7 +18,9 @@ export class ProrationService {
     targetPlan,
     effectiveDate = new Date(),
     timing = 'IMMEDIATE',
-    customerCreditBalance = 0
+    customerCreditBalance = 0,
+    taxRate = 0,
+    discountPercentage = 0
   }) {
     if (!subscription) {
       throw new Error('Subscription is required for proration calculation');
@@ -137,14 +139,29 @@ export class ProrationService {
     let amountDue = new Prisma.Decimal(0);
     let newCreditBalance = availableCredit;
 
+    const decDiscountPct = new Prisma.Decimal(discountPercentage || 0);
+    const decTaxRate = new Prisma.Decimal(taxRate || 0);
+
+    let discountAmount = new Prisma.Decimal(0);
+    if (decDiscountPct.gt(0)) {
+      const discFactor = decDiscountPct.gt(100) ? decDiscountPct.div(10000) : decDiscountPct.div(100);
+      discountAmount = netAdjustment.mul(discFactor).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+    }
+    const taxableAmount = Prisma.Decimal.max(0, netAdjustment.minus(discountAmount));
+    const taxAmount = decTaxRate.gt(0)
+      ? taxableAmount.mul(decTaxRate).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP)
+      : new Prisma.Decimal(0);
+
+    const grossCharge = taxableAmount.plus(taxAmount);
+
     if (netAdjustment.gt(0)) {
-      // UPGRADE: Customer owes money (netAdjustment)
-      // Apply available credit up to netAdjustment
+      // UPGRADE: Customer owes money (grossCharge)
+      // Apply available credit up to grossCharge
       if (availableCredit.gt(0)) {
-        creditApplied = Prisma.Decimal.min(availableCredit, netAdjustment);
+        creditApplied = Prisma.Decimal.min(availableCredit, grossCharge);
         newCreditBalance = availableCredit.minus(creditApplied);
       }
-      amountDue = netAdjustment.minus(creditApplied);
+      amountDue = grossCharge.minus(creditApplied);
     } else if (netAdjustment.lt(0)) {
       // DOWNGRADE: Customer is owed money (credit)
       creditOwed = netAdjustment.abs();
@@ -178,6 +195,11 @@ export class ProrationService {
         unusedAmount: unusedAmount.toFixed(2),
         newPlanAmount: newPlanAmount.toFixed(2),
         netAdjustment: netAdjustment.toFixed(2),
+        discountAmount: discountAmount.toFixed(2),
+        taxableAmount: taxableAmount.toFixed(2),
+        taxRate: decTaxRate.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        grossCharge: grossCharge.toFixed(2),
         creditOwed: creditOwed.toFixed(2),
         creditApplied: creditApplied.toFixed(2),
         amountDue: amountDue.toFixed(2),

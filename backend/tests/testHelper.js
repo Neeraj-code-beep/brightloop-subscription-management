@@ -984,6 +984,9 @@ export function createMockPrisma() {
         if (include?.payments) {
           res.payments = state.payments.filter(p => p.invoiceId === inv.id);
         }
+        if (include?.creditTransactions) {
+          res.creditTransactions = state.creditTransactions.filter(c => c.invoiceId === inv.id);
+        }
         return projectSelect(res, select);
       },
       findFirst: async ({ where = {}, orderBy, include, select }) => {
@@ -1087,6 +1090,9 @@ export function createMockPrisma() {
               pays = pays.filter(p => p.status === include.payments.where.status);
             }
             res.payments = pays.map(p => ({ ...p }));
+          }
+          if (include?.creditTransactions) {
+            res.creditTransactions = (state.creditTransactions || []).filter(c => c.invoiceId === inv.id);
           }
           return projectSelect(res, select);
         });
@@ -1870,8 +1876,25 @@ export function createMockPrisma() {
       },
       update: async ({ where, data }) => {
         const item = state.creditTransactions.find(t => t.id === where.id);
-        if (item) Object.assign(item, data);
-        return item ? { ...item } : null;
+        if (!item) return null;
+        if (
+          (data.amount !== undefined && String(data.amount) !== String(item.amount)) ||
+          (data.balanceAfter !== undefined && String(data.balanceAfter) !== String(item.balanceAfter)) ||
+          (data.customerId !== undefined && data.customerId !== item.customerId) ||
+          (data.type !== undefined && data.type !== item.type) ||
+          (data.currency !== undefined && data.currency !== item.currency) ||
+          (data.id !== undefined && data.id !== item.id)
+        ) {
+          throw new Error('CreditTransaction ledger is immutable: modification of financial amounts, balances, or core fields is strictly prohibited');
+        }
+        Object.assign(item, data);
+        return { ...item };
+      },
+      delete: async () => {
+        throw new Error('CreditTransaction ledger is append-only: DELETE is strictly prohibited');
+      },
+      deleteMany: async () => {
+        throw new Error('CreditTransaction ledger is append-only: DELETE is strictly prohibited');
       }
     },
 

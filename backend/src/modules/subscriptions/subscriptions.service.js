@@ -455,7 +455,7 @@ export class SubscriptionsService {
   /**
    * Preview plan migration calculation (read-only, zero DB mutations).
    */
-  async previewMigration(subscriptionId, { targetPlanId, effectiveDate, timing = 'IMMEDIATE' } = {}) {
+  async previewMigration(subscriptionId, { targetPlanId, effectiveDate, timing = 'IMMEDIATE', taxId = null, discountId = null } = {}) {
     const subscription = await this.prisma.subscription.findUnique({
       where: { id: subscriptionId },
       include: {
@@ -492,19 +492,35 @@ export class SubscriptionsService {
       throw error;
     }
 
+    let taxRate = 0;
+    let discountPercentage = 0;
+    if (taxId) {
+      const tax = await this.prisma.tax.findUnique({ where: { id: taxId } });
+      if (tax && tax.isActive) taxRate = Number(tax.rate ?? tax.percentage ?? 0);
+    }
+    const discId = discountId || subscription.discountId;
+    if (discId) {
+      const discount = await this.prisma.discount.findUnique({ where: { id: discId } });
+      if (discount && discount.isActive && discount.type === 'PERCENTAGE') {
+        discountPercentage = Number(discount.value || 0);
+      }
+    }
+
     return prorationService.calculateProration({
       subscription,
       targetPlan,
       effectiveDate: effectiveDate || new Date(),
       timing,
-      customerCreditBalance: subscription.customer?.creditBalance || 0
+      customerCreditBalance: subscription.customer?.creditBalance || 0,
+      taxRate,
+      discountPercentage
     });
   }
 
   /**
    * Execute plan migration atomically.
    */
-  async migratePlan(subscriptionId, { targetPlanId, effectiveDate, timing = 'IMMEDIATE', idempotencyKey = null } = {}, user = null) {
+  async migratePlan(subscriptionId, { targetPlanId, effectiveDate, timing = 'IMMEDIATE', idempotencyKey = null, taxId = null, discountId = null } = {}, user = null) {
     // 1. Idempotency Check
     if (idempotencyKey) {
       const existingMigration = await this.prisma.subscriptionMigration.findUnique({
@@ -655,9 +671,48 @@ export class SubscriptionsService {
       // IMMEDIATE MIGRATION
       let createdInvoice = null;
       let creditTransaction = null;
-      const creditApplied = new Prisma.Decimal(proration.proration.creditApplied);
+      const netAdjustment = new Prisma.Decimal(proration.proration.netAdjustment);
       const creditOwed = new Prisma.Decimal(proration.proration.creditOwed);
-      const amountDue = new Prisma.Decimal(proration.proration.amountDue);
+
+      // 1. Authoritative Tax & Discount Treatment on Prorated Delta
+      const discId = discountId || subscription.discountId || null;
+      let appliedDiscount = new Prisma.Decimal(0);
+      let discRecord = null;
+      if (discId) {
+        discRecord = await tx.discount.findUnique({ where: { id: discId } });
+        if (discRecord && discRecord.isActive) {
+          const valDec = new Prisma.Decimal(discRecord.value);
+          if (discRecord.type === 'PERCENTAGE') {
+            const rate = valDec.gt(100) ? valDec.div(10000) : valDec.div(100);
+            appliedDiscount = netAdjustment.mul(rate).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+          } else {
+            appliedDiscount = valDec;
+          }
+          if (discRecord.maxDiscountAmount) {
+            appliedDiscount = Prisma.Decimal.min(appliedDiscount, new Prisma.Decimal(discRecord.maxDiscountAmount));
+          }
+          appliedDiscount = Prisma.Decimal.min(appliedDiscount, netAdjustment);
+        }
+      }
+
+      const taxableAmount = Prisma.Decimal.max(0, netAdjustment.minus(appliedDiscount));
+
+      let appliedTaxRate = new Prisma.Decimal(0);
+      let appliedTaxAmount = new Prisma.Decimal(0);
+      let taxRecord = null;
+      if (taxId) {
+        taxRecord = await tx.tax.findUnique({ where: { id: taxId } });
+        if (taxRecord && taxRecord.isActive) {
+          const rateVal = taxRecord.rate !== undefined && taxRecord.rate !== null ? taxRecord.rate : taxRecord.percentage;
+          appliedTaxRate = new Prisma.Decimal(rateVal);
+          appliedTaxAmount = taxableAmount.mul(appliedTaxRate).div(100).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+        }
+      }
+
+      const invoiceTotal = taxableAmount.plus(appliedTaxAmount);
+      const availableCustomerCredit = new Prisma.Decimal(customerCreditBalance || 0);
+      const creditApplied = Prisma.Decimal.min(availableCustomerCredit, invoiceTotal);
+      const amountDue = invoiceTotal.minus(creditApplied);
 
       // Handle Upgrade Invoice Generation
       if (proration.migrationType === 'UPGRADE' && amountDue.gt(0)) {
@@ -670,23 +725,23 @@ export class SubscriptionsService {
             invoiceNumber,
             customerId: subscription.customerId,
             subscriptionId: subscription.id,
-            status: 'ISSUED',
+            status: creditApplied.gt(0) ? 'PARTIALLY_PAID' : 'ISSUED',
             invoiceDate: invDate,
             dueDate,
             periodStart: proration.effectiveDate,
             periodEnd: subscription.currentPeriodEnd,
             currency: subscription.currency,
-            subtotal: amountDue,
-            discountAmount: new Prisma.Decimal(0),
-            taxAmount: new Prisma.Decimal(0),
-            totalAmount: amountDue,
-            amountPaid: new Prisma.Decimal(0),
+            subtotal: netAdjustment,
+            discountAmount: appliedDiscount,
+            taxAmount: appliedTaxAmount,
+            totalAmount: invoiceTotal,
+            amountPaid: creditApplied,
             amountDue,
-            subtotalInCents: Math.round(amountDue.toNumber() * 100),
-            discountInCents: 0,
-            taxInCents: 0,
-            totalInCents: Math.round(amountDue.toNumber() * 100),
-            amountPaidInCents: 0,
+            subtotalInCents: Math.round(netAdjustment.toNumber() * 100),
+            discountInCents: Math.round(appliedDiscount.toNumber() * 100),
+            taxInCents: Math.round(appliedTaxAmount.toNumber() * 100),
+            totalInCents: Math.round(invoiceTotal.toNumber() * 100),
+            amountPaidInCents: Math.round(creditApplied.toNumber() * 100),
             amountDueInCents: Math.round(amountDue.toNumber() * 100),
             notes: `Prorated adjustment invoice for plan upgrade from ${subscription.plan?.name} to ${targetPlan.name}.`,
             items: {
@@ -696,14 +751,15 @@ export class SubscriptionsService {
                   planId: targetPlan.id,
                   description: `Proration Upgrade: ${targetPlan.name} [${proration.effectiveDate.toISOString().slice(0, 10)} to ${subscription.currentPeriodEnd.toISOString().slice(0, 10)}]`,
                   quantity: 1,
-                  unitPrice: amountDue,
-                  discountAmount: new Prisma.Decimal(0),
-                  taxAmount: new Prisma.Decimal(0),
-                  taxRate: new Prisma.Decimal(0),
-                  lineSubtotal: amountDue,
-                  lineTotal: amountDue,
-                  unitPriceInCents: Math.round(amountDue.toNumber() * 100),
-                  totalInCents: Math.round(amountDue.toNumber() * 100)
+                  unitPrice: netAdjustment,
+                  discountAmount: appliedDiscount,
+                  taxAmount: appliedTaxAmount,
+                  taxRate: appliedTaxRate,
+                  taxId: taxRecord?.id || null,
+                  lineSubtotal: netAdjustment,
+                  lineTotal: invoiceTotal,
+                  unitPriceInCents: Math.round(netAdjustment.toNumber() * 100),
+                  totalInCents: Math.round(invoiceTotal.toNumber() * 100)
                 }
               ]
             }

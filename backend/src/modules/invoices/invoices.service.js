@@ -169,6 +169,19 @@ export class InvoicesService {
         };
       }),
       payments: invoice.payments || [],
+      creditTransactions: (invoice.creditTransactions || []).map(tx => ({
+        id: tx.id,
+        type: tx.type,
+        amount: new Prisma.Decimal(tx.amount || 0).toFixed(2),
+        balanceAfter: new Prisma.Decimal(tx.balanceAfter || 0).toFixed(2),
+        currency: tx.currency,
+        reason: tx.reason || null,
+        createdAt: tx.createdAt
+      })),
+      creditsApplied: (invoice.creditTransactions || [])
+        .filter(c => c.type === 'INVOICE_APPLICATION')
+        .reduce((acc, c) => acc.plus(new Prisma.Decimal(c.amount || 0).abs()), new Prisma.Decimal(0))
+        .toFixed(2),
       createdAt: invoice.createdAt,
       updatedAt: invoice.updatedAt
     };
@@ -534,7 +547,8 @@ export class InvoicesService {
             plan: true
           }
         },
-        payments: true
+        payments: true,
+        creditTransactions: true
       }
     });
 

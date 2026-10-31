@@ -7,6 +7,7 @@ import { setPrismaClient } from '../src/utils/prisma.js';
 import { prorationService } from '../src/modules/subscriptions/proration.service.js';
 import { creditsService } from '../src/modules/credits/credits.service.js';
 import { billingService } from '../src/modules/invoices/billing.service.js';
+import { paymentsService } from '../src/modules/payments/payments.service.js';
 
 describe('Module 11: Plan Migration, Proration & Customer Credit Management Suite', () => {
   let mockPrisma;
@@ -809,6 +810,191 @@ describe('Module 11: Plan Migration, Proration & Customer Credit Management Suit
       expect(fetchedPrior.status).toBe('ISSUED');
       expect(new Prisma.Decimal(fetchedPrior.totalAmount).toFixed(2)).toBe('1000.00');
       expect(new Prisma.Decimal(fetchedPrior.amountDue).toFixed(2)).toBe('1000.00');
+    });
+  });
+
+  // =========================================================================
+  // 20, 21, 22, 23. Final Financial Accounting & Reconciliation Verification
+  // =========================================================================
+  describe('20-23. Financial Accounting, Tax/Discount Treatment & Reconciliation', () => {
+    it('20. enforces credit ledger immutability and blocks illegal UPDATE and DELETE', async () => {
+      // Issue a valid ledger transaction
+      const tx = await creditsService.issueCredit({
+        customerId: customerAId,
+        amount: '100.00',
+        reason: 'Immutability test credit'
+      });
+
+      // Attempt to modify financial amount in ledger -> MUST throw
+      await expect(
+        mockPrisma.creditTransaction.update({
+          where: { id: tx.id },
+          data: { amount: new Prisma.Decimal('999.00') }
+        })
+      ).rejects.toThrow(/immutable/i);
+
+      // Attempt to delete transaction from ledger -> MUST throw
+      await expect(
+        mockPrisma.creditTransaction.delete({
+          where: { id: tx.id }
+        })
+      ).rejects.toThrow(/append-only/i);
+    });
+
+    it('21. calculates prorated upgrade adjustment with explicit discount and tax without double taxation', async () => {
+      // Seed 10% Discount
+      const discount = await mockPrisma.discount.create({
+        data: {
+          code: 'UPGRADE10',
+          name: '10% Upgrade Promo',
+          type: 'PERCENTAGE',
+          value: '10.00',
+          currency: 'INR',
+          isActive: true
+        }
+      });
+
+      // Seed 18% Tax
+      const tax = await mockPrisma.tax.create({
+        data: {
+          name: 'GST 18%',
+          code: 'GST_18_UPGRADE',
+          rate: '18.00',
+          percentage: '18.00',
+          isActive: true
+        }
+      });
+
+      // 30-day period with 10 days elapsed, 20 days remaining (2/3 fraction)
+      const periodStart = new Date('2026-06-01T00:00:00Z');
+      const periodEnd = new Date('2026-07-01T00:00:00Z');
+      const effectiveDate = new Date('2026-06-11T00:00:00Z');
+
+      const sub = await mockPrisma.subscription.create({
+        data: {
+          subscriptionNumber: 'SUB-TAX-DISC-001',
+          customerId: customerAId,
+          planId: starterMonthlyPlan.id,
+          status: 'ACTIVE',
+          startDate: periodStart,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+          recurringPrice: '1000.00',
+          currency: 'INR'
+        }
+      });
+
+      // Base proration delta = (2500 - 1000) * (20/30) = 1500 * (2/3) = 1000.00
+      // Discount = 10% of 1000.00 = 100.00
+      // Taxable Base = 1000.00 - 100.00 = 900.00
+      // Tax = 18% of 900.00 = 162.00
+      // Total Adjustment Charge = 900.00 + 162.00 = 1062.00
+      const res = await request(app)
+        .post(`/api/v1/subscriptions/${sub.id}/migrate-plan`)
+        .set('Authorization', `Bearer ${customerUserA.token}`)
+        .send({
+          targetPlanId: proMonthlyPlan.id,
+          effectiveDate: effectiveDate.toISOString(),
+          discountId: discount.id,
+          taxId: tax.id
+        })
+        .expect(201);
+
+      expect(res.body.data.invoice).toBeDefined();
+      expect(res.body.data.invoice.discountAmount).toBe('100.00');
+      expect(res.body.data.invoice.taxAmount).toBe('162.00');
+      expect(res.body.data.invoice.totalAmount).toBe('1062.00');
+      expect(res.body.data.invoice.amountDue).toBe('1062.00');
+    });
+
+    it('22. payment reconciliation preserves credit-funded invoice balances and avoids false discrepancies', async () => {
+      // Grant 500 credit to Customer A
+      await creditsService.issueCredit({
+        customerId: customerAId,
+        amount: '500.00',
+        reason: 'Reconciliation test grant'
+      });
+
+      const sub = await mockPrisma.subscription.create({
+        data: {
+          subscriptionNumber: 'SUB-RECON-001',
+          customerId: customerAId,
+          planId: starterMonthlyPlan.id,
+          status: 'ACTIVE',
+          startDate: new Date('2026-06-01T00:00:00Z'),
+          currentPeriodStart: new Date('2026-06-01T00:00:00Z'),
+          currentPeriodEnd: new Date('2026-07-01T00:00:00Z'),
+          recurringPrice: '1000.00',
+          currency: 'INR'
+        }
+      });
+
+      // Upgrade: netAdjustment is 1500.00 (from 1000 to 2500)
+      // Credit applied: 500.00 -> remaining amountDue: 1000.00
+      const migrateRes = await request(app)
+        .post(`/api/v1/subscriptions/${sub.id}/migrate-plan`)
+        .set('Authorization', `Bearer ${customerUserA.token}`)
+        .send({
+          targetPlanId: proMonthlyPlan.id,
+          effectiveDate: '2026-06-01T00:00:00Z'
+        })
+        .expect(201);
+
+      const invoiceId = migrateRes.body.data.invoice.id;
+      expect(migrateRes.body.data.migration.creditApplied).toBe('500.00');
+      expect(migrateRes.body.data.invoice.amountDue).toBe('1000.00');
+
+      // Now run payment reconciliation sweep
+      const recon = await paymentsService.runReconciliation();
+
+      // The credit-settled invoice must NOT be erroneously reset to amountDue: 1500
+      const reconciledInvoice = await mockPrisma.invoice.findUnique({
+        where: { id: invoiceId }
+      });
+
+      expect(new Prisma.Decimal(reconciledInvoice.amountDue).toFixed(2)).toBe('1000.00');
+      expect(new Prisma.Decimal(reconciledInvoice.amountPaid).toFixed(2)).toBe('500.00');
+    });
+
+    it('23. invoice details response clearly exposes credit settlements alongside external payments', async () => {
+      // Create invoice
+      const invoice = await mockPrisma.invoice.create({
+        data: {
+          invoiceNumber: 'INV-TEST-CRED-01',
+          customerId: customerAId,
+          status: 'ISSUED',
+          invoiceDate: new Date(),
+          dueDate: new Date(Date.now() + 86400000 * 15),
+          currency: 'INR',
+          subtotal: '1000.00',
+          totalAmount: '1000.00',
+          amountPaid: '400.00',
+          amountDue: '600.00'
+        }
+      });
+
+      // Record a credit application transaction linked to this invoice
+      await mockPrisma.creditTransaction.create({
+        data: {
+          customerId: customerAId,
+          invoiceId: invoice.id,
+          type: 'INVOICE_APPLICATION',
+          amount: new Prisma.Decimal('-400.00'),
+          balanceAfter: new Prisma.Decimal('100.00'),
+          currency: 'INR',
+          reason: 'Credit applied on invoice'
+        }
+      });
+
+      const res = await request(app)
+        .get(`/api/v1/invoices/${invoice.id}`)
+        .set('Authorization', `Bearer ${customerUserA.token}`)
+        .expect(200);
+
+      expect(res.body.data.creditsApplied).toBe('400.00');
+      expect(res.body.data.creditTransactions.length).toBe(1);
+      expect(res.body.data.creditTransactions[0].type).toBe('INVOICE_APPLICATION');
+      expect(res.body.data.creditTransactions[0].amount).toBe('-400.00');
     });
   });
 });

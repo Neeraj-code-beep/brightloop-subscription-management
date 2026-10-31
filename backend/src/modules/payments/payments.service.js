@@ -890,7 +890,8 @@ export class PaymentsService {
   async runReconciliation() {
     const invoices = await this.prisma.invoice.findMany({
       include: {
-        payments: true
+        payments: true,
+        creditTransactions: true
       }
     });
 
@@ -902,32 +903,39 @@ export class PaymentsService {
         .filter(p => p.status === 'SUCCEEDED')
         .reduce((acc, p) => acc.plus(new Prisma.Decimal(p.amount || 0)), new Prisma.Decimal(0));
 
+      const creditsAppliedSum = (inv.creditTransactions || [])
+        .filter(c => c.type === 'INVOICE_APPLICATION')
+        .reduce((acc, c) => acc.plus(new Prisma.Decimal(c.amount || 0).abs()), new Prisma.Decimal(0));
+
+      const totalSettledSum = succeededPaymentsSum.plus(creditsAppliedSum);
       const total = new Prisma.Decimal(inv.totalAmount || 0);
-      const expectedDue = Prisma.Decimal.max(0, total.minus(succeededPaymentsSum));
+      const expectedDue = Prisma.Decimal.max(0, total.minus(totalSettledSum));
 
       const currentPaid = new Prisma.Decimal(inv.amountPaid || 0);
       const currentDue = new Prisma.Decimal(inv.amountDue || 0);
 
-      if (!currentPaid.eq(succeededPaymentsSum) || !currentDue.eq(expectedDue)) {
+      if (!currentPaid.eq(totalSettledSum) || !currentDue.eq(expectedDue)) {
         discrepancies.push({
           invoiceId: inv.id,
           invoiceNumber: inv.invoiceNumber,
           oldPaid: currentPaid.toFixed(2),
-          newPaid: succeededPaymentsSum.toFixed(2),
+          newPaid: totalSettledSum.toFixed(2),
           oldDue: currentDue.toFixed(2),
-          newDue: expectedDue.toFixed(2)
+          newDue: expectedDue.toFixed(2),
+          paymentsCollected: succeededPaymentsSum.toFixed(2),
+          creditsApplied: creditsAppliedSum.toFixed(2)
         });
 
         const newStatus = expectedDue.lte(0)
           ? 'PAID'
-          : (succeededPaymentsSum.gt(0) ? 'PARTIALLY_PAID' : inv.status);
+          : (totalSettledSum.gt(0) ? 'PARTIALLY_PAID' : inv.status);
 
         await this.prisma.invoice.update({
           where: { id: inv.id },
           data: {
-            amountPaid: succeededPaymentsSum.toFixed(2),
+            amountPaid: totalSettledSum.toFixed(2),
             amountDue: expectedDue.toFixed(2),
-            amountPaidInCents: Math.round(succeededPaymentsSum.toNumber() * 100),
+            amountPaidInCents: Math.round(totalSettledSum.toNumber() * 100),
             amountDueInCents: Math.round(expectedDue.toNumber() * 100),
             status: newStatus
           }

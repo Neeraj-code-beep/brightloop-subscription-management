@@ -38,7 +38,9 @@ export const previewMigrationSchema = z.object({
   effectiveDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
     message: 'effectiveDate must be a valid date string'
   }).optional(),
-  timing: z.enum(['IMMEDIATE', 'NEXT_CYCLE']).default('IMMEDIATE')
+  timing: z.enum(['IMMEDIATE', 'NEXT_CYCLE']).default('IMMEDIATE'),
+  taxId: z.string().trim().optional().nullable(),
+  discountId: z.string().trim().optional().nullable()
 });
 
 export const migratePlanSchema = z.object({
@@ -47,6 +49,8 @@ export const migratePlanSchema = z.object({
     message: 'effectiveDate must be a valid date string'
   }).optional(),
   timing: z.enum(['IMMEDIATE', 'NEXT_CYCLE']).default('IMMEDIATE'),
-  idempotencyKey: z.string().trim().optional()
+  idempotencyKey: z.string().trim().optional(),
+  taxId: z.string().trim().optional().nullable(),
+  discountId: z.string().trim().optional().nullable()
 });
 
