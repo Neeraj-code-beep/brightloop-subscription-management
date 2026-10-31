@@ -79,8 +79,11 @@ enum SubscriptionStatus {
 
 enum InvoiceStatus {
   DRAFT
+  ISSUED
   OPEN
+  PARTIALLY_PAID
   PAID
+  OVERDUE
   UNCOLLECTIBLE
   VOID
 }
@@ -205,6 +208,7 @@ model Product {
   variants    ProductVariant[]
   plans       Plan[]
   quotationItems QuotationItem[]
+  invoiceItems   InvoiceItem[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -258,6 +262,7 @@ model Plan {
   subscriptionItems  SubscriptionItem[]
   quotationItems     QuotationItem[]
   subscriptions      Subscription[]
+  invoiceItems       InvoiceItem[]
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -384,6 +389,7 @@ model SubscriptionItem {
   unitPrice        Decimal      @default(0.00) @db.Decimal(12, 2)
   lineTotal        Decimal      @default(0.00) @db.Decimal(12, 2)
   selectedVariants Json?
+  invoiceItems     InvoiceItem[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -400,39 +406,72 @@ model Invoice {
   subscriptionId     String?
   subscription       Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   status             InvoiceStatus @default(DRAFT)
+  invoiceDate        DateTime      @default(now())
+  dueDate            DateTime
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  currency           String        @default("INR")
+  subtotal           Decimal       @default(0.00) @db.Decimal(12, 2)
+  discountAmount     Decimal       @default(0.00) @db.Decimal(12, 2)
+  taxAmount          Decimal       @default(0.00) @db.Decimal(12, 2)
+  totalAmount        Decimal       @default(0.00) @db.Decimal(12, 2)
+  amountPaid         Decimal       @default(0.00) @db.Decimal(12, 2)
+  amountDue          Decimal       @default(0.00) @db.Decimal(12, 2)
   subtotalInCents    Int           @default(0)
   taxInCents         Int           @default(0)
   discountInCents    Int           @default(0)
   totalInCents       Int           @default(0)
   amountPaidInCents  Int           @default(0)
   amountDueInCents   Int           @default(0)
-  currency           String        @default("USD")
-  dueDate            DateTime
+  notes              String?
+  termsAndConditions String?
   paidAt             DateTime?
+  issuedAt           DateTime?
+  voidedAt           DateTime?
   pdfUrl             String?
+  metadata           Json?
   items              InvoiceItem[]
   payments           Payment[]
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
+  @@unique([subscriptionId, periodStart, periodEnd])
   @@index([customerId, status])
   @@index([dueDate])
+  @@index([subscriptionId])
+  @@index([createdAt, id])
 }
 
 model InvoiceItem {
-  id               String   @id @default(cuid())
-  invoiceId        String
-  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  description      String
-  quantity         Int      @default(1)
-  unitPriceInCents Int
-  totalInCents     Int
-  taxId            String?
-  tax              Tax?     @relation(fields: [taxId], references: [id], onDelete: SetNull)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                 String            @id @default(cuid())
+  invoiceId          String
+  invoice            Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId          String?
+  product            Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  planId             String?
+  plan               Plan?             @relation(fields: [planId], references: [id], onDelete: SetNull)
+  subscriptionItemId String?
+  subscriptionItem   SubscriptionItem? @relation(fields: [subscriptionItemId], references: [id], onDelete: SetNull)
+  description        String
+  quantity           Int               @default(1)
+  unitPrice          Decimal           @default(0.00) @db.Decimal(12, 2)
+  discountAmount     Decimal           @default(0.00) @db.Decimal(12, 2)
+  taxRate            Decimal           @default(0.00) @db.Decimal(5, 2)
+  taxAmount          Decimal           @default(0.00) @db.Decimal(12, 2)
+  lineSubtotal       Decimal           @default(0.00) @db.Decimal(12, 2)
+  lineTotal          Decimal           @default(0.00) @db.Decimal(12, 2)
+  unitPriceInCents   Int               @default(0)
+  totalInCents       Int               @default(0)
+  taxId              String?
+  tax                Tax?              @relation(fields: [taxId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   @@index([invoiceId])
+  @@index([productId])
+  @@index([planId])
+  @@index([subscriptionItemId])
+  @@index([createdAt, id])
 }
 
 model Tax {

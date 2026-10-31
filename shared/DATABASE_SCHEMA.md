@@ -261,35 +261,67 @@ Recurring contracts associated with customers.
 ---
 
 ### 2.6 Invoice & InvoiceItem
-Generated billing statements and recurring charges.
+Generated billing statements, recurring renewal charges, and manual fee invoices.
+
+- **InvoiceStatus**
+  - Enum values: `DRAFT`, `ISSUED`, `OPEN`, `PARTIALLY_PAID`, `PAID`, `OVERDUE`, `UNCOLLECTIBLE`, `VOID`
 
 - **Invoice**
-  - `id`: `String` (PK)
-  - `invoiceNumber`: `String` (Unique, e.g. `INV-2026-0001`)
-  - `customerId`: `String` (FK -> `Customer.id`)
-  - `subscriptionId`: `String?` (FK -> `Subscription.id`)
-  - `status`: `Enum` (`DRAFT`, `OPEN`, `PAID`, `UNCOLLECTIBLE`, `VOID`)
-  - `subtotalInCents`: `Int`
-  - `taxInCents`: `Int`
-  - `discountInCents`: `Int`
-  - `totalInCents`: `Int`
-  - `amountPaidInCents`: `Int` (Default: `0`)
-  - `amountDueInCents`: `Int`
-  - `currency`: `String`
-  - `dueDate`: `DateTime`
+  - `id`: `String` (PK, CUID)
+  - `invoiceNumber`: `String` (Unique sequential, e.g. `INV-000001`, Indexed)
+  - `customerId`: `String` (FK -> `Customer.id`, Restrict Delete, Indexed)
+  - `subscriptionId`: `String?` (FK -> `Subscription.id`, SetNull on Delete, Indexed)
+  - `status`: `InvoiceStatus` (Default: `DRAFT`, Indexed)
+  - `invoiceDate`: `DateTime` (Default: `now()`)
+  - `dueDate`: `DateTime` (Indexed)
+  - `periodStart`: `DateTime?` (Billing period start)
+  - `periodEnd`: `DateTime?` (Billing period end)
+  - `currency`: `String` (Default: `"INR"`)
+  - `subtotal`: `Decimal(12, 2)` (Default: `0.00`)
+  - `discountAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `taxAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `totalAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `amountPaid`: `Decimal(12, 2)` (Default: `0.00`)
+  - `amountDue`: `Decimal(12, 2)` (Default: `0.00`)
+  - `subtotalInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `taxInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `discountInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `totalInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `amountPaidInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `amountDueInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `notes`: `String?`
+  - `termsAndConditions`: `String?`
+  - `issuedAt`: `DateTime?`
+  - `voidedAt`: `DateTime?`
   - `paidAt`: `DateTime?`
   - `pdfUrl`: `String?`
-  - `createdAt`: `DateTime`
+  - `metadata`: `Json?`
+  - `createdAt`: `DateTime` (Default: `now()`)
   - `updatedAt`: `DateTime`
+  - Unique Constraint: `@@unique([subscriptionId, periodStart, periodEnd])` (Guarantees billing period idempotency)
+  - Composite Index: `@@index([customerId, status])`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 - **InvoiceItem**
-  - `id`: `String` (PK)
-  - `invoiceId`: `String` (FK -> `Invoice.id`, Cascade Delete)
-  - `description`: `String`
-  - `quantity`: `Int`
-  - `unitPriceInCents`: `Int`
-  - `totalInCents`: `Int`
-  - `taxId`: `String?` (FK -> `Tax.id`)
+  - `id`: `String` (PK, CUID)
+  - `invoiceId`: `String` (FK -> `Invoice.id`, Cascade Delete, Indexed)
+  - `productId`: `String?` (FK -> `Product.id`, SetNull on Delete, Indexed)
+  - `planId`: `String?` (FK -> `Plan.id`, SetNull on Delete, Indexed)
+  - `subscriptionItemId`: `String?` (FK -> `SubscriptionItem.id`, SetNull on Delete, Indexed)
+  - `description`: `String` (Immutable text snapshot)
+  - `quantity`: `Int` (Default: `1`)
+  - `unitPrice`: `Decimal(12, 2)` (Locked price snapshot)
+  - `discountAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `taxRate`: `Decimal(5, 2)` (Default: `0.00`)
+  - `taxAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `lineSubtotal`: `Decimal(12, 2)` (Default: `0.00`)
+  - `lineTotal`: `Decimal(12, 2)` (Default: `0.00`)
+  - `unitPriceInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `totalInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `taxId`: `String?` (FK -> `Tax.id`, SetNull on Delete)
+  - `createdAt`: `DateTime` (Default: `now()`)
+  - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 ---
 

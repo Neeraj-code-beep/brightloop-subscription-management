@@ -404,12 +404,69 @@ Endpoints returning collections support cursor or page-based pagination using th
   - Response: `{ items: Subscription[], pagination }`
 
 ### 5.8 Invoices (`/api/v1/invoices`)
-- `GET    /api/v1/invoices` - List invoices (filterable by status: `DRAFT`, `OPEN`, `PAID`, `VOID`, `UNCOLLECTIBLE`).
-- `POST   /api/v1/invoices` - Manually create one-off or ad-hoc invoice.
-- `GET    /api/v1/invoices/:id` - Get invoice details, line items, taxes, discounts, and payments.
-- `POST   /api/v1/invoices/:id/finalize` - Finalize draft invoice and post to customer.
-- `POST   /api/v1/invoices/:id/void` - Void an open/uncollectible invoice.
-- `GET    /api/v1/invoices/:id/pdf` - Download invoice PDF.
+- `POST   /api/v1/invoices` - Create manual invoice with multiple line items, discount, tax, and authoritative calculations.
+  - Access: `ADMIN`, `STAFF`
+  - Body:
+    - `customerId`: `string` (required, active customer)
+    - `subscriptionId`: `string?` (optional, must belong to customer)
+    - `invoiceDate`: `string (ISO date)?` (default: now)
+    - `dueDate`: `string (ISO date)?` (optional; calculated via paymentTerms if omitted)
+    - `paymentTerms`: `'IMMEDIATE' | 'NET_7' | 'NET_15' | 'NET_30'?` (default: `'NET_15'`)
+    - `periodStart`: `string (ISO date)?`
+    - `periodEnd`: `string (ISO date)?`
+    - `currency`: `string?` (default: `'INR'`)
+    - `notes`: `string?`
+    - `termsAndConditions`: `string?`
+    - `items`: `array` (required, non-empty)
+      - `description`: `string` (required snapshot)
+      - `quantity`: `integer` (positive, default: 1)
+      - `unitPrice`: `number | string` (non-negative Decimal, required)
+      - `discountAmount`: `number | string?` (default: 0.00)
+      - `taxId`: `string?` (optional valid Tax id)
+      - `taxRate`: `number | string?` (default: 0.00)
+      - `productId`: `string?`
+      - `planId`: `string?`
+      - `subscriptionItemId`: `string?`
+  - Response: Created invoice with status `DRAFT` and sequential `INV-XXXXXX` number.
+- `GET    /api/v1/invoices` - List invoices with dual pagination (offset and cursor modes), search, and multi-field filtering.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (automatically isolated to caller's `customerId`)
+  - Query parameters: `page`, `limit`, `cursor`, `customerId` (Admin/Staff only), `subscriptionId`, `status`, `startDate`, `endDate`, `dueDateStart`, `dueDateEnd`, `isOverdue`, `search`, `sortBy`, `sortOrder`
+  - Response: `{ items: Invoice[], pagination }`
+- `GET    /api/v1/invoices/:id` - Retrieve full invoice details, line items, customer, subscription, and payments.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (strictly own record verified against authenticated `user.customerId`)
+  - Response: Full safe Invoice object.
+- `PATCH  /api/v1/invoices/:id` - Update draft invoice details and line items.
+  - Access: `ADMIN`, `STAFF`
+  - Restriction: Permitted only when status is `DRAFT`. Once issued or paid, line items are immutable (`400 Bad Request`).
+  - Response: Updated Invoice object.
+- `POST   /api/v1/invoices/:id/issue` - Issue a draft invoice to customer.
+  - Access: `ADMIN`, `STAFF`
+  - Validates: Invoice must be `DRAFT` and contain at least 1 line item. Locks financial line items and transitions status to `ISSUED`.
+  - Body: `{ "dueDate"?: string, "paymentTerms"?: string }`
+  - Response: Issued Invoice object.
+- `POST   /api/v1/invoices/:id/void` - Void an invoice.
+  - Access: `ADMIN`, `STAFF`
+  - Restriction: Permitted for `DRAFT`, `ISSUED`, `OVERDUE`, and `PARTIALLY_PAID` invoices. Paid invoices cannot be voided (`400 Bad Request`).
+  - Body: `{ "reason"?: string }`
+  - Response: Voided Invoice object.
+- `GET    /api/v1/customers/:id/invoices` - List all invoices for a customer with dual pagination.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own `customerId` only)
+  - Response: `{ items: Invoice[], pagination }`
+- `GET    /api/v1/subscriptions/:id/invoices` - List all billing cycle invoices generated for a subscription.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own subscription only)
+  - Response: `{ items: Invoice[], pagination }`
+
+### 5.8.1 Automated Recurring Billing Engine & Scheduler
+- **Billing Worker**: BullMQ background processor (`billingWorker.js`) running on queue `billing-queue`.
+- **Scheduled Job**: Daily cron (`billingScheduler.js`) enqueues `generate-recurring-invoices` with idempotent job deduplication (`jobId: recurring-billing-YYYY-MM-DD`).
+- **Subscription Invoice Generation**:
+  - Scans for `ACTIVE` subscriptions where `nextBillingDate <= now`.
+  - Determines billing period (`periodStart` to `periodEnd`).
+  - Reads subscription price snapshots (`recurringPrice`, `setupFee`). Setup fees are included only on first billing cycle.
+  - Enforces database constraint `@@unique([subscriptionId, periodStart, periodEnd])` ensuring atomic, idempotent execution.
+  - Advances subscription's `currentPeriodStart`, `currentPeriodEnd`, and `nextBillingDate` in the same database transaction.
+- **Overdue Management**:
+  - Recurring job scans for `ISSUED` or `PARTIALLY_PAID` invoices past their `dueDate` with `amountDue > 0` and transitions status to `OVERDUE` without modifying totals.
 
 ### 5.9 Payments (`/api/v1/payments`)
 - `GET    /api/v1/payments` - List payments and transactions.

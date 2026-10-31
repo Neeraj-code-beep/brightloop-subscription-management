@@ -645,64 +645,90 @@ export class QuotationsService {
       new Prisma.Decimal(0)
     );
 
-    // 5. Transactional Execution
-    return await this.prisma.$transaction(async (tx) => {
-      // Create Subscription
-      const subscription = await tx.subscription.create({
-        data: {
-          subscriptionNumber,
-          customerId: quotation.customerId,
-          planId: primaryPlan?.id || null,
-          quotationId: quotation.id,
-          status: 'ACTIVE',
-          startDate,
-          currentPeriodStart,
-          currentPeriodEnd,
-          nextBillingDate,
-          billingCycleAnchor: startDate,
-          billingCycle,
-          recurringPrice,
-          setupFee,
-          currency: quotation.currency,
-          metadata: options.metadata || {},
-          items: {
-            create: quotation.items.map(item => ({
-              planId: item.planId || primaryPlan?.id || item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              lineTotal: item.lineTotal,
-              selectedVariants: item.selectedVariants || []
-            }))
-          }
-        },
-        include: {
-          customer: true,
-          plan: true,
-          items: true
-        }
-      });
-
-      // Update Quotation status to CONVERTED
-      const updatedQuotation = await tx.quotation.update({
-        where: { id: quotation.id },
-        data: { status: 'CONVERTED' },
-        include: {
-          customer: true,
-          items: {
-            include: {
-              product: true,
-              plan: true
+    // 5. Transactional Execution with concurrent conflict safety
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Create Subscription
+        const subscription = await tx.subscription.create({
+          data: {
+            subscriptionNumber,
+            customerId: quotation.customerId,
+            planId: primaryPlan?.id || null,
+            quotationId: quotation.id,
+            status: 'ACTIVE',
+            startDate,
+            currentPeriodStart,
+            currentPeriodEnd,
+            nextBillingDate,
+            billingCycleAnchor: startDate,
+            billingCycle,
+            recurringPrice,
+            setupFee,
+            currency: quotation.currency,
+            metadata: options.metadata || {},
+            items: {
+              create: quotation.items.map(item => ({
+                planId: item.planId || primaryPlan?.id || item.productId,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                lineTotal: item.lineTotal,
+                selectedVariants: item.selectedVariants || []
+              }))
             }
           },
-          subscription: true
-        }
-      });
+          include: {
+            customer: true,
+            plan: true,
+            items: true
+          }
+        });
 
-      return {
-        subscription,
-        quotation: this.formatQuotationResponse(updatedQuotation)
-      };
-    });
+        // Update Quotation status to CONVERTED
+        const updatedQuotation = await tx.quotation.update({
+          where: { id: quotation.id },
+          data: { status: 'CONVERTED' },
+          include: {
+            customer: true,
+            items: {
+              include: {
+                product: true,
+                plan: true
+              }
+            },
+            subscription: true
+          }
+        });
+
+        return {
+          subscription,
+          quotation: this.formatQuotationResponse(updatedQuotation)
+        };
+      });
+    } catch (txError) {
+      if (
+        txError.code === 'P2002' ||
+        txError.message?.includes('quotationId') ||
+        txError.message?.includes('subscriptionNumber') ||
+        txError.message?.includes('Unique constraint')
+      ) {
+        const existingSub = await this.prisma.subscription.findUnique({
+          where: { quotationId: id },
+          include: { customer: true, plan: true, items: true }
+        });
+        if (existingSub) {
+          const freshQuotation = await this.prisma.quotation.findUnique({
+            where: { id },
+            include: { customer: true, items: true, subscription: true }
+          });
+          return {
+            subscription: existingSub,
+            quotation: this.formatQuotationResponse(freshQuotation || quotation),
+            message: 'Quotation was concurrently converted (safe idempotency recovery)'
+          };
+        }
+      }
+      throw txError;
+    }
   }
 }
 

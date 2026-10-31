@@ -1,20 +1,62 @@
 import { Router } from 'express';
-import { successResponse } from '../../utils/response.js';
 import { authenticate } from '../../middleware/auth.js';
+import { authorize } from '../../middleware/authorize.js';
 import { authorizeOwnership } from '../../middleware/ownership.js';
+import { validateBody } from '../../middleware/validate.js';
+import { invoicesController } from './invoices.controller.js';
+import {
+  createInvoiceSchema,
+  updateInvoiceSchema,
+  issueInvoiceSchema,
+  voidInvoiceSchema
+} from './invoices.validation.js';
 
 export const invoicesRouter = Router();
 
-invoicesRouter.get('/', authenticate, (req, res) => {
-  return successResponse(res, {
-    message: 'Invoices list retrieved',
-    data: { items: [], pagination: { page: 1, limit: 20, totalItems: 0, totalPages: 0 } }
-  });
-});
+// Global authentication for all invoice routes
+invoicesRouter.use(authenticate);
 
-invoicesRouter.get('/:id', authenticate, authorizeOwnership('invoice'), (req, res) => {
-  return successResponse(res, {
-    message: 'Invoice details retrieved successfully',
-    data: req.resource || { id: req.params.id }
-  });
-});
+// POST /api/v1/invoices - Create manual invoice (ADMIN, STAFF)
+invoicesRouter.post(
+  '/',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(createInvoiceSchema),
+  invoicesController.createInvoice.bind(invoicesController)
+);
+
+// GET /api/v1/invoices - List invoices with dual pagination (ADMIN, STAFF, CUSTOMER own)
+invoicesRouter.get(
+  '/',
+  invoicesController.listInvoices.bind(invoicesController)
+);
+
+// GET /api/v1/invoices/:id - Get invoice details (ADMIN, STAFF, CUSTOMER own)
+invoicesRouter.get(
+  '/:id',
+  authorizeOwnership('invoice'),
+  invoicesController.getInvoiceById.bind(invoicesController)
+);
+
+// PATCH /api/v1/invoices/:id - Update draft invoice (ADMIN, STAFF)
+invoicesRouter.patch(
+  '/:id',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(updateInvoiceSchema),
+  invoicesController.updateInvoice.bind(invoicesController)
+);
+
+// POST /api/v1/invoices/:id/issue - Issue draft invoice (ADMIN, STAFF)
+invoicesRouter.post(
+  '/:id/issue',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(issueInvoiceSchema),
+  invoicesController.issueInvoice.bind(invoicesController)
+);
+
+// POST /api/v1/invoices/:id/void - Void invoice (ADMIN, STAFF)
+invoicesRouter.post(
+  '/:id/void',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(voidInvoiceSchema),
+  invoicesController.voidInvoice.bind(invoicesController)
+);

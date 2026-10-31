@@ -1,4 +1,5 @@
 import { subscriptionsService } from './subscriptions.service.js';
+import { invoicesService } from '../invoices/invoices.service.js';
 import { successResponse } from '../../utils/response.js';
 
 export class SubscriptionsController {
@@ -102,6 +103,27 @@ export class SubscriptionsController {
           ? 'Subscription cancelled immediately'
           : 'Subscription scheduled for cancellation at period end',
         data: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+  async getSubscriptionInvoices(req, res, next) {
+    try {
+      const result = await invoicesService.listInvoices({
+        user: req.user,
+        subscriptionId: req.params.id,
+        status: req.query.status,
+        page: req.query.page,
+        limit: req.query.limit,
+        cursor: req.query.cursor,
+        sortBy: req.query.sortBy,
+        sortOrder: req.query.sortOrder
+      });
+      return successResponse(res, {
+        statusCode: 200,
+        message: 'Subscription invoices retrieved successfully',
+        data: result
       });
     } catch (err) {
       next(err);

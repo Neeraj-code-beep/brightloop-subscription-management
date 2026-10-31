@@ -8,6 +8,7 @@ export function createMockPrisma() {
     passwordResetTokens: [],
     customers: [],
     invoices: [],
+    invoiceItems: [],
     subscriptions: [],
     payments: [],
     products: [],
@@ -575,6 +576,9 @@ export function createMockPrisma() {
         if (include?.items) {
           res.items = state.subscriptionItems.filter(item => item.subscriptionId === s.id);
         }
+        if (include?.invoices) {
+          res.invoices = state.invoices.filter(i => i.subscriptionId === s.id);
+        }
         return projectSelect(res, select);
       },
       findFirst: async ({ where }) => {
@@ -589,6 +593,10 @@ export function createMockPrisma() {
         if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
         if (where.status) list = list.filter(s => s.status === where.status);
         if (where.planId) list = list.filter(s => s.planId === where.planId);
+        if (where.nextBillingDate?.lte) {
+          const lte = new Date(where.nextBillingDate.lte).getTime();
+          list = list.filter(s => s.nextBillingDate && new Date(s.nextBillingDate).getTime() <= lte);
+        }
         if (where.subscriptionNumber?.contains) {
           const search = String(where.subscriptionNumber.contains).toLowerCase();
           list = list.filter(s => s.subscriptionNumber && s.subscriptionNumber.toLowerCase().includes(search));
@@ -685,6 +693,9 @@ export function createMockPrisma() {
         if (include?.items) {
           res.items = state.subscriptionItems.filter(item => item.subscriptionId === id);
         }
+        if (include?.invoices) {
+          res.invoices = state.invoices.filter(i => i.subscriptionId === id);
+        }
         return projectSelect(res, select);
       },
       update: async ({ where, data, include, select }) => {
@@ -701,6 +712,9 @@ export function createMockPrisma() {
         }
         if (include?.items) {
           res.items = state.subscriptionItems.filter(item => item.subscriptionId === where.id);
+        }
+        if (include?.invoices) {
+          res.invoices = state.invoices.filter(i => i.subscriptionId === where.id);
         }
         return projectSelect(res, select);
       }
@@ -784,32 +798,221 @@ export function createMockPrisma() {
     },
 
     invoice: {
-      findUnique: async ({ where }) => {
-        return state.invoices.find(i => i.id === where.id) || null;
-      },
-      findMany: async ({ where = {}, skip = 0, take = 20, select }) => {
-        let list = [...state.invoices];
-        if (where.customerId) {
-          list = list.filter(i => i.customerId === where.customerId);
+      findUnique: async ({ where, include, select }) => {
+        let inv = null;
+        if (where.id) inv = state.invoices.find(i => i.id === where.id);
+        else if (where.invoiceNumber) inv = state.invoices.find(i => i.invoiceNumber === where.invoiceNumber);
+        if (!inv) return null;
+
+        const res = { ...inv };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === inv.customerId) || null;
         }
-        return list.slice(skip, skip + take).map(i => projectSelect(i, select));
+        if (include?.subscription) {
+          res.subscription = state.subscriptions.find(s => s.id === inv.subscriptionId) || null;
+        }
+        if (include?.items) {
+          res.items = state.invoiceItems
+            .filter(item => item.invoiceId === inv.id)
+            .map(item => {
+              const itemCopy = { ...item };
+              if (include.items?.include?.product) {
+                itemCopy.product = state.products.find(p => p.id === item.productId) || null;
+              }
+              if (include.items?.include?.plan) {
+                itemCopy.plan = state.plans.find(p => p.id === item.planId) || null;
+              }
+              return itemCopy;
+            });
+        }
+        if (include?.payments) {
+          res.payments = state.payments.filter(p => p.invoiceId === inv.id);
+        }
+        return projectSelect(res, select);
+      },
+      findFirst: async ({ where = {}, orderBy, include, select }) => {
+        let list = [...state.invoices];
+        if (where.id) list = list.filter(i => i.id === where.id);
+        if (where.invoiceNumber) {
+          if (typeof where.invoiceNumber === 'string') {
+            list = list.filter(i => i.invoiceNumber === where.invoiceNumber);
+          } else if (where.invoiceNumber.startsWith) {
+            list = list.filter(i => i.invoiceNumber && i.invoiceNumber.startsWith(where.invoiceNumber.startsWith));
+          }
+        }
+        if (where.customerId) list = list.filter(i => i.customerId === where.customerId);
+        if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
+        if (where.status) list = list.filter(i => i.status === where.status);
+        if (where.periodStart) {
+          const psTime = new Date(where.periodStart).getTime();
+          list = list.filter(i => i.periodStart && new Date(i.periodStart).getTime() === psTime);
+        }
+        if (where.periodEnd) {
+          const peTime = new Date(where.periodEnd).getTime();
+          list = list.filter(i => i.periodEnd && new Date(i.periodEnd).getTime() === peTime);
+        }
+
+        const sorted = sortArray(list, orderBy);
+        const inv = sorted[0];
+        if (!inv) return null;
+
+        const res = { ...inv };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === inv.customerId) || null;
+        }
+        if (include?.subscription) {
+          res.subscription = state.subscriptions.find(s => s.id === inv.subscriptionId) || null;
+        }
+        if (include?.items) {
+          res.items = state.invoiceItems.filter(item => item.invoiceId === inv.id);
+        }
+        return projectSelect(res, select);
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
+        let list = [...state.invoices];
+        if (where.customerId) list = list.filter(i => i.customerId === where.customerId);
+        if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
+        if (where.status) {
+          if (Array.isArray(where.status.in)) {
+            list = list.filter(i => where.status.in.includes(i.status));
+          } else {
+            list = list.filter(i => i.status === where.status);
+          }
+        }
+        if (where.dueDate?.lt) {
+          const lt = new Date(where.dueDate.lt).getTime();
+          list = list.filter(i => i.dueDate && new Date(i.dueDate).getTime() < lt);
+        }
+        if (where.amountDue?.gt !== undefined) {
+          list = list.filter(i => Number(i.amountDue || 0) > where.amountDue.gt);
+        }
+        if (where.OR) {
+          list = list.filter(i => {
+            return where.OR.some(cond => {
+              if (cond.status) return i.status === cond.status;
+              if (cond.invoiceNumber?.contains) {
+                return i.invoiceNumber && i.invoiceNumber.toLowerCase().includes(cond.invoiceNumber.contains.toLowerCase());
+              }
+              if (cond.customer?.email?.contains) {
+                const c = state.customers.find(cust => cust.id === i.customerId);
+                return c && c.email && c.email.toLowerCase().includes(cond.customer.email.contains.toLowerCase());
+              }
+              return false;
+            });
+          });
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(i => i.id === cursor.id);
+          if (idx !== -1) startIndex = idx + (skip || 0);
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(inv => {
+          const res = { ...inv };
+          if (include?.customer) {
+            res.customer = state.customers.find(c => c.id === inv.customerId) || null;
+          }
+          if (include?.subscription) {
+            res.subscription = state.subscriptions.find(s => s.id === inv.subscriptionId) || null;
+          }
+          if (include?.items) {
+            res.items = state.invoiceItems.filter(item => item.invoiceId === inv.id);
+          }
+          return projectSelect(res, select);
+        });
       },
       count: async ({ where = {} } = {}) => {
         let list = [...state.invoices];
-        if (where.customerId) {
-          list = list.filter(i => i.customerId === where.customerId);
-        }
+        if (where.customerId) list = list.filter(i => i.customerId === where.customerId);
+        if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
+        if (where.status) list = list.filter(i => i.status === where.status);
         return list.length;
       },
-      create: async ({ data }) => {
-        const inv = {
-          id: `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      create: async ({ data, include, select }) => {
+        const id = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const invoiceNumber = data.invoiceNumber || `INV-${String(state.invoices.length + 1).padStart(6, '0')}`;
+        const newInv = {
+          id,
           ...data,
+          invoiceNumber,
           createdAt: new Date(),
           updatedAt: new Date()
         };
-        state.invoices.push(inv);
-        return inv;
+        state.invoices.push(newInv);
+
+        if (data.items?.create) {
+          for (const item of data.items.create) {
+            state.invoiceItems.push({
+              id: `ii_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              invoiceId: id,
+              ...item,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+          }
+        }
+
+        const res = { ...newInv };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === newInv.customerId) || null;
+        }
+        if (include?.subscription) {
+          res.subscription = state.subscriptions.find(s => s.id === newInv.subscriptionId) || null;
+        }
+        if (include?.items) {
+          res.items = state.invoiceItems.filter(item => item.invoiceId === id);
+        }
+        return projectSelect(res, select);
+      },
+      update: async ({ where, data, include, select }) => {
+        const idx = state.invoices.findIndex(i => i.id === where.id);
+        if (idx === -1) throw new Error('Invoice not found');
+        state.invoices[idx] = { ...state.invoices[idx], ...data, updatedAt: new Date() };
+
+        const res = { ...state.invoices[idx] };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === res.customerId) || null;
+        }
+        if (include?.subscription) {
+          res.subscription = state.subscriptions.find(s => s.id === res.subscriptionId) || null;
+        }
+        if (include?.items) {
+          res.items = state.invoiceItems.filter(item => item.invoiceId === where.id);
+        }
+        return projectSelect(res, select);
+      }
+    },
+
+    invoiceItem: {
+      findMany: async ({ where = {} }) => {
+        let list = [...state.invoiceItems];
+        if (where.invoiceId) list = list.filter(i => i.invoiceId === where.invoiceId);
+        return list;
+      },
+      createMany: async ({ data = [] }) => {
+        let count = 0;
+        for (const item of data) {
+          state.invoiceItems.push({
+            id: `ii_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            ...item,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          count++;
+        }
+        return { count };
+      },
+      deleteMany: async ({ where = {} }) => {
+        const before = state.invoiceItems.length;
+        if (where.invoiceId) {
+          state.invoiceItems = state.invoiceItems.filter(i => i.invoiceId !== where.invoiceId);
+        }
+        return { count: before - state.invoiceItems.length };
       }
     },
 

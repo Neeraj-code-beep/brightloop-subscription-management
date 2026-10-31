@@ -37,6 +37,13 @@ subscriptionsRouter.get(
   subscriptionsController.getSubscriptionById
 );
 
+// GET /api/v1/subscriptions/:id/invoices - List subscription invoices
+subscriptionsRouter.get(
+  '/:id/invoices',
+  authorizeOwnership('subscription'),
+  subscriptionsController.getSubscriptionInvoices.bind(subscriptionsController)
+);
+
 // PATCH /api/v1/subscriptions/:id - Update subscription permitted fields (ADMIN, STAFF)
 subscriptionsRouter.patch(
   '/:id',
