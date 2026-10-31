@@ -607,3 +607,39 @@ Access: `ADMIN` (full access), `STAFF` (operational access). `CUSTOMER` access i
   - Body: `{ "query": string, "topK"?: number }`
 - `GET    /api/v1/ai/health` - AI Service health & Gemini connectivity status.
 
+### 5.14 Plan Migration & Proration (`/api/v1/subscriptions`)
+Access: `ADMIN`, `STAFF`, `CUSTOMER` (scoped to owned subscription via anti-IDOR middleware). All calculations use deterministic `Prisma.Decimal` arithmetic with `ROUND_HALF_UP` precision. Setup fees are strictly exempted (zero) during plan migrations.
+
+- `POST   /api/v1/subscriptions/:id/preview-migration` - Preview plan migration financial breakdown (pure read calculation, zero DB mutations).
+  - Body: `{ "targetPlanId": string, "effectiveDate"?: string (ISO date), "timing"?: "IMMEDIATE" | "NEXT_CYCLE" }`
+  - Returns: `{ "migrationType": "UPGRADE"|"DOWNGRADE"|"SAME_PLAN_CYCLE_CHANGE", "timing": string, "effectiveDate": string, "billingPeriod": { "start": string, "end": string, "totalSeconds": number, "remainingSeconds": number, "remainingFraction": string }, "pricing": { "fromPlanId": string, "fromPlanName": string, "fromBillingCycle": string, "fromPrice": string, "toPlanId": string, "toPlanName": string, "toBillingCycle": string, "toPrice": string, "currency": string }, "proration": { "unusedAmount": string, "newPlanAmount": string, "netAdjustment": string, "creditOwed": string, "creditApplied": string, "amountDue": string, "customerCreditBalanceBefore": string, "customerCreditBalanceAfter": string }, "actions": { "requiresInvoice": boolean, "requiresCreditIssuance": boolean, "isScheduled": boolean } }`
+
+- `POST   /api/v1/subscriptions/:id/migrate-plan` - Execute plan migration atomically.
+  - Body: `{ "targetPlanId": string, "effectiveDate"?: string, "timing"?: "IMMEDIATE" | "NEXT_CYCLE", "idempotencyKey"?: string }`
+  - Upgrades: computes prorated difference, applies available customer credit balance, issues separate adjustment invoice for remaining balance due, updates subscription plan atomically while preserving billing cycle anchor.
+  - Downgrades (Immediate): mints remaining credit into customer credit balance and immutable credit transaction ledger.
+  - Downgrades (Next-Cycle): schedules target plan on subscription (`scheduledPlanId`, `scheduledChangeAt`), preserves active plan until renewal, executes exactly once in billing worker.
+  - Returns: `{ "migration": object, "subscription": object, "invoice"?: object, "isDuplicate": boolean, "message": string }`
+
+- `POST   /api/v1/subscriptions/:id/cancel-scheduled-migration` - Cancel pending scheduled renewal plan change.
+  - Returns: `{ "subscription": object, "message": string }`
+
+- `GET    /api/v1/subscriptions/:id/migrations` - List historical migrations for a subscription.
+  - Returns: `Array<{ "id": string, "subscriptionId": string, "fromPlanName": string, "toPlanName": string, "migrationType": string, "timing": string, "status": string, "fromPrice": string, "toPrice": string, "unusedAmount": string, "newPlanAmount": string, "netAdjustment": string, "creditApplied": string, "invoiceNumber"?: string, "effectiveDate": string }>`
+
+### 5.15 Customer Credit Management & Ledger (`/api/v1/customers`)
+Access: `ADMIN`, `STAFF`, `CUSTOMER` (scoped to owned customer record). Manual adjustments restricted to `ADMIN`.
+
+- `GET    /api/v1/customers/:id/credits` - Get customer credit balance.
+  - Returns: `{ "customerId": string, "customerCode": string, "customerName": string, "email": string, "creditBalance": string, "currency": string }`
+
+- `GET    /api/v1/customers/:id/credits/transactions` - Paginated immutable credit transaction ledger.
+  - Query parameters: `page` (number), `limit` (number), `type` (`"PRORATION_CREDIT"`|`"MANUAL_ADJUSTMENT"`|`"INVOICE_APPLICATION"`|`"REFUND"`).
+  - Returns: `{ "items": Array<{ "id": string, "type": string, "amount": string, "balanceAfter": string, "currency": string, "reason": string, "createdAt": string, "subscriptionNumber"?: string, "invoiceNumber"?: string }>, "pagination": object }`
+
+- `POST   /api/v1/customers/:id/credits/adjust` - Manual admin adjustment of customer credit balance (ADMIN only).
+  - Body: `{ "amount": number|string (positive to add, negative to deduct), "reason": string, "idempotencyKey"?: string }`
+  - Validates customer balance never drops below 0.00.
+  - Returns: `{ "customer": { "id": string, "creditBalance": string, "currency": string }, "transaction": object }`
+
+

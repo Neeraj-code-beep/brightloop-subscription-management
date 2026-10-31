@@ -43,6 +43,26 @@ export const subscriptionService = {
     const res = await apiClient.get(`/subscriptions/${id}/invoices`, { params });
     return res.data.data;
   },
+
+  async previewMigration(id, data) {
+    const res = await apiClient.post(`/subscriptions/${id}/preview-migration`, data);
+    return res.data.data;
+  },
+
+  async migratePlan(id, data) {
+    const res = await apiClient.post(`/subscriptions/${id}/migrate-plan`, data);
+    return res.data.data;
+  },
+
+  async cancelScheduledMigration(id) {
+    const res = await apiClient.post(`/subscriptions/${id}/cancel-scheduled-migration`);
+    return res.data.data;
+  },
+
+  async getMigrations(id) {
+    const res = await apiClient.get(`/subscriptions/${id}/migrations`);
+    return res.data.data;
+  },
 };
 
 export default subscriptionService;

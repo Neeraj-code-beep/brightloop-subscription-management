@@ -1,21 +1,30 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { Check, Repeat } from 'lucide-react'
+import { ArrowRightLeft, Check, Clock, Repeat } from 'lucide-react'
 import EmptyState from '../../components/shared/EmptyState.jsx'
 import PageHeader from '../../components/shared/PageHeader.jsx'
 import SubscriptionDetail from '../../components/subscriptions/SubscriptionDetail.jsx'
 import SubscriptionStatusBadge from '../../components/subscriptions/SubscriptionStatusBadge.jsx'
+import PlanMigrationModal from '../../components/subscriptions/PlanMigrationModal.jsx'
+import SubscriptionMigrationHistory from '../../components/subscriptions/SubscriptionMigrationHistory.jsx'
+import CustomerCreditSection from '../../components/customers/CustomerCreditSection.jsx'
 import Card from '../../components/ui/Card.jsx'
 import Modal from '../../components/ui/Modal.jsx'
 import { buttonVariants } from '../../components/ui/buttonStyles.js'
 import useAuth from '../../hooks/useAuth.js'
 import customerService from '../../services/customerService.js'
+import subscriptionService from '../../services/subscriptionService.js'
+import useToast from '../../hooks/useToast.js'
 import { formatDate, formatINR } from '../../utils/format.js'
 
 export default function CustomerSubscriptionPage() {
   const { user, customerId } = useAuth()
+  const { showToast } = useToast()
   const [subscriptions, setSubscriptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [migrateOpen, setMigrateOpen] = useState(false)
+  const [cancellingScheduled, setCancellingScheduled] = useState(false)
+  const [historyTrigger, setHistoryTrigger] = useState(0)
 
   const loadSubscriptions = useCallback(async () => {
     if (!customerId) {
@@ -69,6 +78,21 @@ export default function CustomerSubscriptionPage() {
   const recurringAmount = Number(subscription.recurringPrice || 0)
   const isClosed = subscription.status === 'CANCELLED' || subscription.status === 'EXPIRED'
 
+  const handleCancelScheduled = async () => {
+    if (!subscription?.id) return
+    setCancellingScheduled(true)
+    try {
+      await subscriptionService.cancelScheduledMigration(subscription.id)
+      showToast({ title: 'Scheduled plan change cancelled' })
+      setHistoryTrigger(prev => prev + 1)
+      loadSubscriptions()
+    } catch (err) {
+      showToast({ title: 'Failed to cancel scheduled change', description: err.response?.data?.message || err.message })
+    } finally {
+      setCancellingScheduled(false)
+    }
+  }
+
   return (
     <div className="space-y-6 lg:space-y-8">
       <PageHeader
@@ -76,6 +100,16 @@ export default function CustomerSubscriptionPage() {
         description="Your current plan and renewal"
         action={
           <div className="flex flex-wrap gap-2">
+            {!isClosed && (
+              <button
+                type="button"
+                onClick={() => setMigrateOpen(true)}
+                className={buttonVariants({ variant: 'primary', className: 'gap-1.5' })}
+              >
+                <ArrowRightLeft className="w-4 h-4" />
+                Change Plan
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setDetailOpen(true)}
@@ -86,6 +120,26 @@ export default function CustomerSubscriptionPage() {
           </div>
         }
       />
+
+      {/* Scheduled Migration Alert Banner */}
+      {subscription.scheduledPlanId && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <span>
+              <strong>Scheduled Plan Change:</strong> Your plan will change automatically on renewal ({subscription.scheduledChangeAt ? formatDate(subscription.scheduledChangeAt) : 'Next Renewal'}).
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={cancellingScheduled}
+            onClick={handleCancelScheduled}
+            className="text-xs px-3 py-1.5 font-medium bg-white text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+          >
+            {cancellingScheduled ? 'Cancelling...' : 'Cancel Scheduled Change'}
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Card className="p-5 sm:p-6">
@@ -196,6 +250,28 @@ export default function CustomerSubscriptionPage() {
           </div>
         </Modal>
       )}
+
+      {/* Customer Credit Ledger */}
+      {customerId && (
+        <CustomerCreditSection customerId={customerId} isAdmin={false} />
+      )}
+
+      {/* Migration History */}
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-foreground">Plan Change History</h3>
+        <SubscriptionMigrationHistory subscriptionId={subscription.id} refreshTrigger={historyTrigger} />
+      </div>
+
+      <PlanMigrationModal
+        open={migrateOpen}
+        onClose={() => setMigrateOpen(false)}
+        subscription={subscription}
+        onSuccess={() => {
+          showToast({ title: 'Plan changed successfully' })
+          setHistoryTrigger(prev => prev + 1)
+          loadSubscriptions()
+        }}
+      />
     </div>
   )
 }

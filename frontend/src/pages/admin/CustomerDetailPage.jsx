@@ -9,6 +9,7 @@ import PaymentTable from '../../components/payments/PaymentTable.jsx'
 import Card from '../../components/ui/Card.jsx'
 import StatusBadge from '../../components/ui/StatusBadge.jsx'
 import { buttonVariants } from '../../components/ui/buttonStyles.js'
+import CustomerCreditSection from '../../components/customers/CustomerCreditSection.jsx'
 import customerService from '../../services/customerService.js'
 import { formatDate, formatINR } from '../../utils/format.js'
 
@@ -226,6 +227,8 @@ export default function CustomerDetailPage() {
         <h3 className="text-base font-semibold text-foreground">Billing Overview</h3>
         <StatStrip stats={billingStats} ariaLabel="Customer billing stats" />
       </div>
+
+      <CustomerCreditSection customerId={customer.id} isAdmin={true} />
 
       <div className="space-y-4">
         <h3 className="text-base font-semibold text-foreground">Invoices ({formattedInvoices.length})</h3>

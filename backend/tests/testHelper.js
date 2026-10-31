@@ -23,7 +23,9 @@ export function createMockPrisma() {
     subscriptionItems: [],
     taxes: [],
     discounts: [],
-    discountRedemptions: []
+    discountRedemptions: [],
+    creditTransactions: [],
+    subscriptionMigrations: []
   };
 
   const projectSelect = (item, select) => {
@@ -247,6 +249,7 @@ export function createMockPrisma() {
           currency: data.currency || 'USD',
           isActive: data.isActive !== undefined ? data.isActive : true,
           status: data.status || 'ACTIVE',
+          creditBalance: data.creditBalance !== undefined ? data.creditBalance : new Prisma.Decimal('0.00'),
           createdAt: new Date(),
           updatedAt: new Date()
         };
@@ -577,6 +580,9 @@ export function createMockPrisma() {
             res.plan = null;
           }
         }
+        if (include?.scheduledPlan) {
+          res.scheduledPlan = s.scheduledPlanId ? (state.plans.find(p => p.id === s.scheduledPlanId) || null) : null;
+        }
         if (include?.items) {
           res.items = state.subscriptionItems.filter(item => item.subscriptionId === s.id);
         }
@@ -669,6 +675,8 @@ export function createMockPrisma() {
           recurringPrice: data.recurringPrice || '0.00',
           setupFee: data.setupFee || '0.00',
           currency: data.currency || 'INR',
+          scheduledPlanId: data.scheduledPlanId || null,
+          scheduledChangeAt: data.scheduledChangeAt || null,
           metadata: data.metadata || {},
           createdAt: new Date(),
           updatedAt: new Date()
@@ -713,6 +721,9 @@ export function createMockPrisma() {
         }
         if (include?.plan) {
           res.plan = state.plans.find(p => p.id === res.planId) || null;
+        }
+        if (include?.scheduledPlan) {
+          res.scheduledPlan = res.scheduledPlanId ? (state.plans.find(p => p.id === res.scheduledPlanId) || null) : null;
         }
         if (include?.items) {
           res.items = state.subscriptionItems.filter(item => item.subscriptionId === where.id);
@@ -1820,6 +1831,107 @@ export function createMockPrisma() {
         if (where.variantId) list = list.filter(pv => pv.variantId === where.variantId);
         return list;
       }
+    },
+
+    creditTransaction: {
+      findUnique: async ({ where }) => {
+        if (where.idempotencyKey) return state.creditTransactions.find(t => t.idempotencyKey === where.idempotencyKey) || null;
+        if (where.id) return state.creditTransactions.find(t => t.id === where.id) || null;
+        return null;
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, orderBy, include }) => {
+        let list = [...state.creditTransactions];
+        if (where.customerId) list = list.filter(t => t.customerId === where.customerId);
+        if (where.subscriptionId) list = list.filter(t => t.subscriptionId === where.subscriptionId);
+        if (where.type) list = list.filter(t => t.type === where.type);
+        const sorted = sortArray(list, orderBy);
+        const sliced = sorted.slice(skip, skip + take);
+        return sliced.map(t => {
+          const res = { ...t };
+          if (include?.subscription) res.subscription = state.subscriptions.find(s => s.id === t.subscriptionId) || null;
+          if (include?.invoice) res.invoice = state.invoices.find(i => i.id === t.invoiceId) || null;
+          return res;
+        });
+      },
+      count: async ({ where = {} } = {}) => {
+        let list = [...state.creditTransactions];
+        if (where.customerId) list = list.filter(t => t.customerId === where.customerId);
+        if (where.type) list = list.filter(t => t.type === where.type);
+        return list.length;
+      },
+      create: async ({ data }) => {
+        const item = {
+          id: `ct_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          createdAt: new Date(),
+          ...data
+        };
+        state.creditTransactions.push(item);
+        return { ...item };
+      },
+      update: async ({ where, data }) => {
+        const item = state.creditTransactions.find(t => t.id === where.id);
+        if (item) Object.assign(item, data);
+        return item ? { ...item } : null;
+      }
+    },
+
+    subscriptionMigration: {
+      findUnique: async ({ where, include }) => {
+        let m = null;
+        if (where.idempotencyKey) m = state.subscriptionMigrations.find(x => x.idempotencyKey === where.idempotencyKey);
+        if (where.id) m = state.subscriptionMigrations.find(x => x.id === where.id);
+        if (!m) return null;
+        const res = { ...m };
+        if (include?.fromPlan) res.fromPlan = state.plans.find(p => p.id === m.fromPlanId) || null;
+        if (include?.toPlan) res.toPlan = state.plans.find(p => p.id === m.toPlanId) || null;
+        if (include?.invoiceIssued) res.invoiceIssued = state.invoices.find(i => i.id === m.invoiceIssuedId) || null;
+        if (include?.subscription) {
+          const sub = state.subscriptions.find(s => s.id === m.subscriptionId);
+          res.subscription = sub ? { ...sub } : null;
+        }
+        return res;
+      },
+      findMany: async ({ where = {}, orderBy, include }) => {
+        let list = [...state.subscriptionMigrations];
+        if (where.subscriptionId) list = list.filter(m => m.subscriptionId === where.subscriptionId);
+        if (where.customerId) list = list.filter(m => m.customerId === where.customerId);
+        if (where.status) list = list.filter(m => m.status === where.status);
+        const sorted = sortArray(list, orderBy);
+        return sorted.map(m => {
+          const res = { ...m };
+          if (include?.fromPlan) res.fromPlan = state.plans.find(p => p.id === m.fromPlanId) || null;
+          if (include?.toPlan) res.toPlan = state.plans.find(p => p.id === m.toPlanId) || null;
+          if (include?.invoiceIssued) res.invoiceIssued = state.invoices.find(i => i.id === m.invoiceIssuedId) || null;
+          return res;
+        });
+      },
+      create: async ({ data, include }) => {
+        const item = {
+          id: `mig_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          ...data
+        };
+        state.subscriptionMigrations.push(item);
+        const res = { ...item };
+        if (include?.fromPlan) res.fromPlan = state.plans.find(p => p.id === item.fromPlanId) || null;
+        if (include?.toPlan) res.toPlan = state.plans.find(p => p.id === item.toPlanId) || null;
+        if (include?.invoiceIssued) res.invoiceIssued = state.invoices.find(i => i.id === item.invoiceIssuedId) || null;
+        return res;
+      },
+      updateMany: async ({ where, data }) => {
+        let count = 0;
+        for (const m of state.subscriptionMigrations) {
+          let match = true;
+          if (where.subscriptionId && m.subscriptionId !== where.subscriptionId) match = false;
+          if (where.status && m.status !== where.status) match = false;
+          if (match) {
+            Object.assign(m, data, { updatedAt: new Date() });
+            count++;
+          }
+        }
+        return { count };
+      }
     }
   };
 
@@ -1865,6 +1977,7 @@ export async function seedTestUser(mockPrisma, { name = 'Test User', email, pass
       taxNumber: null,
       notes: null,
       currency: 'USD',
+      creditBalance: new Prisma.Decimal('0.00'),
       isActive: true,
       status: 'ACTIVE',
       createdAt: new Date(),

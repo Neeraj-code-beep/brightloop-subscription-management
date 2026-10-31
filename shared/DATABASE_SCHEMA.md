@@ -430,12 +430,55 @@ Financial transactions reconciling open invoices, audit trails, and gateway webh
 
 ---
 
+- **CreditTransaction** (Immutable Customer Credit Ledger)
+  - id: String (PK, e.g. ct_...)
+  - customerId: String (FK -> Customer.id)
+  - subscriptionId: String? (FK -> Subscription.id)
+  - invoiceId: String? (FK -> Invoice.id)
+  - migrationId: String? (FK -> SubscriptionMigration.id)
+  - type: Enum (PRORATION_CREDIT, MANUAL_ADJUSTMENT, INVOICE_APPLICATION, REFUND)
+  - amount: Decimal(12,2) (Positive for additions, negative for deductions)
+  - balanceAfter: Decimal(12,2) (Running balance after transaction)
+  - currency: String (default INR)
+  - reason: String?
+  - idempotencyKey: String? (Unique)
+  - metadata: Json?
+  - createdAt: DateTime
+
+- **SubscriptionMigration** (Plan Migration History)
+  - id: String (PK, e.g. mig_...)
+  - subscriptionId: String (FK -> Subscription.id)
+  - customerId: String (FK -> Customer.id)
+  - fromPlanId: String (FK -> Plan.id)
+  - toPlanId: String (FK -> Plan.id)
+  - migrationType: Enum (UPGRADE, DOWNGRADE, SAME_PLAN_CYCLE_CHANGE)
+  - timing: Enum (IMMEDIATE, NEXT_CYCLE)
+  - status: Enum (COMPLETED, SCHEDULED, CANCELLED)
+  - effectiveDate: DateTime
+  - scheduledExecutionDate: DateTime?
+  - fromBillingCycle: BillingCycle
+  - toBillingCycle: BillingCycle
+  - fromPrice: Decimal(12,2)
+  - toPrice: Decimal(12,2)
+  - unusedAmount: Decimal(12,2) (default 0.00)
+  - newPlanAmount: Decimal(12,2) (default 0.00)
+  - netAdjustment: Decimal(12,2) (default 0.00)
+  - creditApplied: Decimal(12,2) (default 0.00)
+  - invoiceIssuedId: String? (FK -> Invoice.id)
+  - idempotencyKey: String? (Unique)
+  - metadata: Json?
+  - createdAt: DateTime
+  - updatedAt: DateTime
+
+---
+
 ## 3. Recommended PostgreSQL Indexes
 
-1. `Customer(email)`
-2. `Subscription(customerId, status)`
-3. `Subscription(currentPeriodEnd)` (Critical for BullMQ automated billing cron)
-4. `Invoice(customerId, status)`
-5. `Invoice(dueDate)` (Critical for overdue aging queries)
-6. `Payment(invoiceId, status)`
-
+1. Customer(email)
+2. Subscription(customerId, status)
+3. Subscription(currentPeriodEnd) (Critical for BullMQ automated billing cron)
+4. Invoice(customerId, status)
+5. Invoice(dueDate) (Critical for overdue aging queries)
+6. Payment(invoiceId, status)
+7. CreditTransaction(customerId, createdAt)
+8. SubscriptionMigration(subscriptionId, createdAt)

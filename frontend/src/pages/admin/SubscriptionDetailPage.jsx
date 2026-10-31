@@ -1,7 +1,9 @@
-import { ArrowLeft, SearchX } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, Clock, SearchX } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import EmptyState from '../../components/shared/EmptyState.jsx'
+import PlanMigrationModal from '../../components/subscriptions/PlanMigrationModal.jsx'
+import SubscriptionMigrationHistory from '../../components/subscriptions/SubscriptionMigrationHistory.jsx'
 import SubscriptionDetail from '../../components/subscriptions/SubscriptionDetail.jsx'
 import SubscriptionForm from '../../components/subscriptions/SubscriptionForm.jsx'
 import SubscriptionLifecycle from '../../components/subscriptions/SubscriptionLifecycle.jsx'
@@ -17,6 +19,7 @@ import { getPlanById } from '../../data/plans.js'
 import useInvoices from '../../hooks/useInvoices.js'
 import useSubscriptions from '../../hooks/useSubscriptions.js'
 import useToast from '../../hooks/useToast.js'
+import subscriptionService from '../../services/subscriptionService.js'
 import {
   LIFECYCLE_ACTIONS,
   canGenerateInvoice,
@@ -42,6 +45,24 @@ export default function SubscriptionDetailPage() {
   const [closeOpen, setCloseOpen] = useState(false)
   const [renewOpen, setRenewOpen] = useState(false)
   const [quotationOpen, setQuotationOpen] = useState(false)
+  const [migrateOpen, setMigrateOpen] = useState(false)
+  const [historyTrigger, setHistoryTrigger] = useState(0)
+  const [cancellingScheduled, setCancellingScheduled] = useState(false)
+
+  async function handleCancelScheduled() {
+    if (!subscription?.id) return
+    setCancellingScheduled(true)
+    try {
+      await subscriptionService.cancelScheduledMigration(subscription.id)
+      showToast({ title: 'Scheduled plan change cancelled successfully' })
+      setHistoryTrigger(prev => prev + 1)
+      window.location.reload()
+    } catch (err) {
+      showToast({ title: 'Failed to cancel scheduled migration', description: err.response?.data?.message || err.message })
+    } finally {
+      setCancellingScheduled(false)
+    }
+  }
 
   if (!subscription) {
     return (
@@ -132,21 +153,68 @@ export default function SubscriptionDetailPage() {
           <p className="text-sm text-foreground-muted">{customerName}</p>
         </div>
 
-        <SubscriptionLifecycleActions
-          subscription={subscription}
-          availableActions={availableActions}
-          onLifecycleAction={handleLifecycleAction}
-          onClose={() => setCloseOpen(true)}
-          onEdit={() => setEditOpen(true)}
-          onGenerateInvoice={handleGenerateInvoice}
-          onDuplicate={handleDuplicate}
-          onViewQuotation={() => setQuotationOpen(true)}
-        />
+        {/* Scheduled Migration Banner if present */}
+        {subscription.scheduledPlanId && (
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-600 flex-shrink-0" />
+              <span>
+                <strong>Scheduled Plan Migration:</strong> Target plan scheduled to activate on renewal ({subscription.scheduledChangeAt ? new Date(subscription.scheduledChangeAt).toLocaleDateString() : 'Next Renewal'}).
+              </span>
+            </div>
+            <button
+              type="button"
+              disabled={cancellingScheduled}
+              onClick={handleCancelScheduled}
+              className="text-xs px-3 py-1.5 font-medium bg-white text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              {cancellingScheduled ? 'Cancelling...' : 'Cancel Scheduled Migration'}
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SubscriptionLifecycleActions
+            subscription={subscription}
+            availableActions={availableActions}
+            onLifecycleAction={handleLifecycleAction}
+            onClose={() => setCloseOpen(true)}
+            onEdit={() => setEditOpen(true)}
+            onGenerateInvoice={handleGenerateInvoice}
+            onDuplicate={handleDuplicate}
+            onViewQuotation={() => setQuotationOpen(true)}
+          />
+
+          <button
+            type="button"
+            onClick={() => setMigrateOpen(true)}
+            className={buttonVariants({ variant: 'outline', className: 'gap-1.5' })}
+          >
+            <ArrowRightLeft className="w-4 h-4 text-primary" />
+            Change Plan
+          </button>
+        </div>
       </div>
 
       <SubscriptionDetail subscription={subscription} customerName={customerName} planName={planName} />
 
       <SubscriptionLifecycle status={subscription.status} activity={subscription.activity} />
+
+      <div className="space-y-4">
+        <h3 className="text-base font-semibold text-foreground">Plan Migration History</h3>
+        <SubscriptionMigrationHistory subscriptionId={subscription.id} refreshTrigger={historyTrigger} />
+      </div>
+
+      <PlanMigrationModal
+        open={migrateOpen}
+        onClose={() => setMigrateOpen(false)}
+        subscription={subscription}
+        onSuccess={() => {
+          showToast({ title: 'Plan migrated successfully' })
+          setHistoryTrigger(prev => prev + 1)
+          window.location.reload()
+        }}
+      />
 
       <Modal
         open={editOpen}

@@ -33,3 +33,20 @@ export const cancelSubscriptionSchema = z.object({
   cancellationReason: z.string().trim().max(500).optional().nullable()
 });
 
+export const previewMigrationSchema = z.object({
+  targetPlanId: z.string().trim().min(1, 'targetPlanId is required'),
+  effectiveDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
+    message: 'effectiveDate must be a valid date string'
+  }).optional(),
+  timing: z.enum(['IMMEDIATE', 'NEXT_CYCLE']).default('IMMEDIATE')
+});
+
+export const migratePlanSchema = z.object({
+  targetPlanId: z.string().trim().min(1, 'targetPlanId is required'),
+  effectiveDate: z.string().refine((val) => !isNaN(Date.parse(val)), {
+    message: 'effectiveDate must be a valid date string'
+  }).optional(),
+  timing: z.enum(['IMMEDIATE', 'NEXT_CYCLE']).default('IMMEDIATE'),
+  idempotencyKey: z.string().trim().optional()
+});
+

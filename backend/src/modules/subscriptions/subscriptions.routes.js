@@ -8,7 +8,9 @@ import {
   createSubscriptionSchema,
   updateSubscriptionSchema,
   updateSubscriptionStatusSchema,
-  cancelSubscriptionSchema
+  cancelSubscriptionSchema,
+  previewMigrationSchema,
+  migratePlanSchema
 } from './subscriptions.validation.js';
 
 export const subscriptionsRouter = Router();
@@ -96,4 +98,34 @@ subscriptionsRouter.patch(
   authorize('ADMIN', 'STAFF'),
   validateBody(cancelSubscriptionSchema),
   subscriptionsController.cancelSubscription
+);
+
+// POST /api/v1/subscriptions/:id/preview-migration - Preview proration calculation
+subscriptionsRouter.post(
+  '/:id/preview-migration',
+  authorizeOwnership('subscription'),
+  validateBody(previewMigrationSchema),
+  subscriptionsController.previewMigration.bind(subscriptionsController)
+);
+
+// POST /api/v1/subscriptions/:id/migrate-plan - Execute plan migration
+subscriptionsRouter.post(
+  '/:id/migrate-plan',
+  authorizeOwnership('subscription'),
+  validateBody(migratePlanSchema),
+  subscriptionsController.migratePlan.bind(subscriptionsController)
+);
+
+// POST /api/v1/subscriptions/:id/cancel-scheduled-migration - Cancel scheduled plan migration
+subscriptionsRouter.post(
+  '/:id/cancel-scheduled-migration',
+  authorizeOwnership('subscription'),
+  subscriptionsController.cancelScheduledMigration.bind(subscriptionsController)
+);
+
+// GET /api/v1/subscriptions/:id/migrations - List migration history
+subscriptionsRouter.get(
+  '/:id/migrations',
+  authorizeOwnership('subscription'),
+  subscriptionsController.listMigrations.bind(subscriptionsController)
 );

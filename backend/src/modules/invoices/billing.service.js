@@ -204,14 +204,48 @@ export class BillingService {
             }
           });
 
-          // Advance subscription dates
+          // Advance subscription dates and apply scheduled migration if present
+          const subUpdateData = {
+            currentPeriodStart: nextPeriodStart,
+            currentPeriodEnd: nextPeriodEnd,
+            nextBillingDate: nextPeriodEnd
+          };
+
+          if (sub.scheduledPlanId) {
+            const scheduledPlan = await tx.plan.findUnique({
+              where: { id: sub.scheduledPlanId }
+            });
+            if (scheduledPlan) {
+              subUpdateData.planId = scheduledPlan.id;
+              subUpdateData.billingCycle = scheduledPlan.billingCycle;
+              subUpdateData.recurringPrice = scheduledPlan.price;
+              subUpdateData.scheduledPlanId = null;
+              subUpdateData.scheduledChangeAt = null;
+
+              subUpdateData.currentPeriodEnd = calculateNextBillingDate(
+                nextPeriodStart,
+                scheduledPlan.billingCycle,
+                scheduledPlan.customDuration,
+                scheduledPlan.customDurationUnit
+              );
+              subUpdateData.nextBillingDate = subUpdateData.currentPeriodEnd;
+
+              await tx.subscriptionMigration.updateMany({
+                where: {
+                  subscriptionId: sub.id,
+                  status: 'SCHEDULED'
+                },
+                data: {
+                  status: 'COMPLETED',
+                  effectiveDate: nextPeriodStart
+                }
+              });
+            }
+          }
+
           const updatedSub = await tx.subscription.update({
             where: { id: sub.id },
-            data: {
-              currentPeriodStart: nextPeriodStart,
-              currentPeriodEnd: nextPeriodEnd,
-              nextBillingDate: nextPeriodEnd
-            }
+            data: subUpdateData
           });
 
           return { invoice, subscription: updatedSub };

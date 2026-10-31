@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { customersController } from './customers.controller.js';
 import { createCustomerSchema, updateCustomerStatusSchema } from './customers.validation.js';
+import { creditsController } from '../credits/credits.controller.js';
+import { adjustCreditSchema } from '../credits/credits.validation.js';
 import { authenticate } from '../../middleware/auth.js';
 import { authorize } from '../../middleware/authorize.js';
 import { authorizeOwnership } from '../../middleware/ownership.js';
@@ -86,4 +88,29 @@ customersRouter.get(
   authenticate,
   authorizeOwnership('customer', 'id'),
   customersController.getPayments.bind(customersController)
+);
+
+// Customer credit balance (ADMIN, STAFF, CUSTOMER own record)
+customersRouter.get(
+  '/:id/credits',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  creditsController.getBalance.bind(creditsController)
+);
+
+// Customer credit transactions (ADMIN, STAFF, CUSTOMER own record)
+customersRouter.get(
+  '/:id/credits/transactions',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  creditsController.listTransactions.bind(creditsController)
+);
+
+// Adjust customer credit balance (ADMIN only)
+customersRouter.post(
+  '/:id/credits/adjust',
+  authenticate,
+  authorize('ADMIN'),
+  validateBody(adjustCreditSchema),
+  creditsController.adjustBalance.bind(creditsController)
 );
