@@ -1,0 +1,309 @@
+// Prisma schema for Brightloop Subscription Management System
+// Target Database: PostgreSQL (Neon)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  STAFF
+  CUSTOMER
+}
+
+enum CustomerStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  ANNUAL
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  PAUSED
+  CANCELED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  UNCOLLECTIBLE
+  VOID
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  BANK_TRANSFER
+  ACH
+  MANUAL
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+// -------------------------------------------------------------
+// CORE ENTITIES
+// -------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole  @default(STAFF)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  customer     Customer?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([email])
+}
+
+model Customer {
+  id              String         @id @default(cuid())
+  userId          String?        @unique
+  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  companyName     String
+  contactName     String
+  email           String         @unique
+  phone           String?
+  billingAddress  Json?
+  shippingAddress Json?
+  taxId           String?
+  currency        String         @default("USD")
+  status          CustomerStatus @default(ACTIVE)
+  quotations      Quotation[]
+  subscriptions   Subscription[]
+  invoices        Invoice[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([email])
+  @@index([status])
+}
+
+model Product {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  description String?
+  isActive    Boolean          @default(true)
+  variants    ProductVariant[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model ProductVariant {
+  id               String   @id @default(cuid())
+  productId        String
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name             String
+  sku              String   @unique
+  unit             String   @default("seat")
+  unitPriceInCents Int
+  isActive         Boolean  @default(true)
+  plans            Plan[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Plan {
+  id                String             @id @default(cuid())
+  variantId         String
+  variant           ProductVariant     @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  name              String
+  billingInterval   BillingInterval    @default(MONTHLY)
+  intervalCount     Int                @default(1)
+  priceInCents      Int
+  currency          String             @default("USD")
+  trialDays         Int                @default(0)
+  isActive          Boolean            @default(true)
+  subscriptionItems SubscriptionItem[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+model Quotation {
+  id               String          @id @default(cuid())
+  quotationNumber  String          @unique
+  customerId       String
+  customer         Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  status           QuotationStatus @default(DRAFT)
+  subtotalInCents  Int             @default(0)
+  taxInCents       Int             @default(0)
+  discountInCents  Int             @default(0)
+  totalInCents     Int             @default(0)
+  validUntil       DateTime
+  termsAndConditions String?
+  subscription     Subscription?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  customerId         String
+  customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  quotationId        String?            @unique
+  quotation          Quotation?         @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean            @default(false)
+  canceledAt         DateTime?
+  billingCycleAnchor DateTime
+  currency           String             @default("USD")
+  discountId         String?
+  discount           Discount?          @relation(fields: [discountId], references: [id], onDelete: SetNull)
+  items              SubscriptionItem[]
+  invoices           Invoice[]
+  metadata           Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([customerId, status])
+  @@index([currentPeriodEnd])
+}
+
+model SubscriptionItem {
+  id               String       @id @default(cuid())
+  subscriptionId   String
+  subscription     Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  planId           String
+  plan             Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+  quantity         Int          @default(1)
+  unitPriceInCents Int
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([subscriptionId])
+}
+
+model Invoice {
+  id                 String        @id @default(cuid())
+  invoiceNumber      String        @unique
+  customerId         String
+  customer           Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  subscriptionId     String?
+  subscription       Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  status             InvoiceStatus @default(DRAFT)
+  subtotalInCents    Int           @default(0)
+  taxInCents         Int           @default(0)
+  discountInCents    Int           @default(0)
+  totalInCents       Int           @default(0)
+  amountPaidInCents  Int           @default(0)
+  amountDueInCents   Int           @default(0)
+  currency           String        @default("USD")
+  dueDate            DateTime
+  paidAt             DateTime?
+  pdfUrl             String?
+  items              InvoiceItem[]
+  payments           Payment[]
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([customerId, status])
+  @@index([dueDate])
+}
+
+model InvoiceItem {
+  id               String   @id @default(cuid())
+  invoiceId        String
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description      String
+  quantity         Int      @default(1)
+  unitPriceInCents Int
+  totalInCents     Int
+  taxId            String?
+  tax              Tax?     @relation(fields: [taxId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([invoiceId])
+}
+
+model Tax {
+  id           String        @id @default(cuid())
+  name         String
+  percentage   Decimal       @db.Decimal(5, 2)
+  jurisdiction String
+  isActive     Boolean       @default(true)
+  invoiceItems InvoiceItem[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Discount {
+  id             String         @id @default(cuid())
+  code           String         @unique
+  type           DiscountType   @default(PERCENTAGE)
+  value          Int // basis points for percentage (e.g. 1000 = 10%) or minor units for fixed
+  currency       String?
+  validFrom      DateTime       @default(now())
+  validTo        DateTime?
+  maxRedemptions Int?
+  timesRedeemed  Int            @default(0)
+  isActive       Boolean        @default(true)
+  subscriptions  Subscription[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Payment {
+  id                   String        @id @default(cuid())
+  invoiceId            String
+  invoice              Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  paymentMethod        PaymentMethod @default(CREDIT_CARD)
+  transactionReference String?
+  amountInCents        Int
+  currency             String        @default("USD")
+  status               PaymentStatus @default(PENDING)
+  failureReason        String?
+  paidAt               DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  @@index([invoiceId, status])
+}
+

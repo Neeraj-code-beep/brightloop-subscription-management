@@ -1,0 +1,37 @@
+{
+  "name": "backend",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Subscription Management System - Backend API & Workers",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "worker": "node src/workers/index.js",
+    "worker:dev": "nodemon src/workers/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "bcryptjs": "^3.0.2",
+    "bullmq": "^5.41.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.0.1",
+    "ioredis": "^5.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9",
+    "prisma": "^6.4.1",
+    "supertest": "^7.0.0",
+    "vitest": "^3.0.7"
+  }
+}
+
