@@ -85,7 +85,12 @@ export async function retrieveRelevantDocuments(
 }> {
   const topK = options.topK || 3;
   const minSimilarity = options.minSimilarity !== undefined ? options.minSimilarity : 0.05;
-  const userRole = (options.userRole || 'STAFF').toUpperCase();
+  // Role-based document access control:
+  // If no verified userRole is provided, default to 'CUSTOMER' (least privilege).
+  // Never grant privileged ('STAFF' or 'ADMIN') access to unverified or missing roles.
+  const userRole = (options.userRole && ['ADMIN', 'STAFF', 'CUSTOMER'].includes(options.userRole.toUpperCase()))
+    ? options.userRole.toUpperCase()
+    : 'CUSTOMER';
 
   // Determine active document corpus
   const activeDocs: KnowledgeDocument[] = [...VERIFIED_COMPANY_DOCUMENTS];

@@ -10,131 +10,107 @@ export interface AuthIdentity {
   isAuthenticated: boolean;
 }
 
+export class IdentityVerificationError extends Error {
+  public statusCode: number;
+  public isAuthError: boolean;
+
+  constructor(message: string, statusCode: number = 401) {
+    super(message);
+    this.name = 'IdentityVerificationError';
+    this.statusCode = statusCode;
+    this.isAuthError = statusCode === 401 || statusCode === 403;
+  }
+}
+
 function normalizeRole(roleStr?: string): UserRole {
-  if (!roleStr) return 'CUSTOMER';
+  if (!roleStr) {
+    throw new IdentityVerificationError('User role is missing from backend identity profile', 403);
+  }
   const upper = roleStr.toUpperCase();
   if (upper === 'ADMIN' || upper === 'SUPERADMIN') return 'ADMIN';
   if (upper === 'STAFF' || upper === 'SUPPORT' || upper === 'FINANCE') return 'STAFF';
-  return 'CUSTOMER';
-}
-
-function decodeJwtPayload(token: string): any {
-  const parts = token.split('.');
-  if (parts.length === 3) {
-    try {
-      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-      const jsonStr = Buffer.from(base64, 'base64').toString('utf8');
-      return JSON.parse(jsonStr);
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  if (upper === 'CUSTOMER' || upper === 'USER') return 'CUSTOMER';
+  throw new IdentityVerificationError(`Unsupported user role '${roleStr}' returned by backend identity service`, 403);
 }
 
 /**
- * Resolves user identity, role, and customer scope strictly from backend authentication or verified token.
- * Never trusts role claims or customer IDs supplied in user prompts.
+ * Resolves trusted user identity strictly through the authenticated backend endpoint /api/v1/auth/me.
+ *
+ * Security Requirements:
+ * 1. Resolves trusted identity via GET /api/v1/auth/me forwarding the caller's JWT.
+ * 2. If /api/v1/auth/me is unavailable, returns/throws an IdentityVerificationError (503).
+ * 3. Never silently assigns a CUSTOMER role to an unauthenticated or unverified request.
+ * 4. Never infers authorization from decoded but unverified JWT claims.
+ * 5. Never accepts role or customer identity from prompt text or frontend context.
+ * 6. Keeps backend RBAC and customer ownership checks authoritative.
+ *
+ * Do not implement local JWT verification unless Neeraj has explicitly provided the correct signing-key verification contract.
  */
 export async function resolveAuthIdentity(
   rawToken?: string,
   backendClient?: BackendApiClient
 ): Promise<AuthIdentity> {
   if (!rawToken || typeof rawToken !== 'string') {
-    return {
-      userId: 'anonymous',
-      role: 'CUSTOMER',
-      isAuthenticated: false
-    };
+    throw new IdentityVerificationError('Authentication required: Missing Authorization token', 401);
   }
 
-  const cleanToken = rawToken.startsWith('Bearer ') ? rawToken.slice(7).trim() : rawToken.trim();
+  let cleanToken = rawToken.trim();
+  if (cleanToken.toLowerCase().startsWith('bearer')) {
+    cleanToken = cleanToken.slice(6).trim();
+  }
   if (!cleanToken) {
-    return {
-      userId: 'anonymous',
-      role: 'CUSTOMER',
-      isAuthenticated: false
-    };
+    throw new IdentityVerificationError('Authentication required: Empty Authorization token', 401);
   }
 
-  // 1. Attempt authoritative backend identity check if backendClient is provided
-  if (backendClient) {
-    try {
-      const me = await backendClient.getAuthMe();
-      if (me && (me.data || me.user)) {
-        const userData = me.data || me.user || me;
-        return {
-          userId: userData.id || userData.userId || 'usr_authenticated',
-          role: normalizeRole(userData.role),
-          customerId: userData.customerId || (userData.role === 'CUSTOMER' ? userData.id : undefined),
-          email: userData.email,
-          isAuthenticated: true
-        };
-      }
-    } catch (err: any) {
-      if (err instanceof BackendHttpError && (err.statusCode === 401 || err.statusCode === 403)) {
-        return {
-          userId: 'unauthorized',
-          role: 'CUSTOMER',
-          isAuthenticated: false
-        };
-      }
-      // If backend /auth/me is pending or offline, fall through to token payload resolution
+  const client = backendClient || new BackendApiClient(cleanToken);
+
+  try {
+    const me = await client.getAuthMe();
+    if (!me) {
+      throw new IdentityVerificationError('Empty response received from backend identity service', 401);
     }
-  }
 
-  // 2. Decode standard JWT payload
-  const decoded = decodeJwtPayload(cleanToken);
-  if (decoded && typeof decoded === 'object') {
-    const role = normalizeRole(decoded.role);
+    const userData = me.data || me.user || me;
+    if (!userData || typeof userData !== 'object') {
+      throw new IdentityVerificationError('Malformed user profile returned from backend identity service', 401);
+    }
+
+    const role = normalizeRole(userData.role);
+    const userId = userData.id || userData.userId || 'usr_authenticated';
+    const customerId = userData.customerId || (role === 'CUSTOMER' ? (userData.customerId || userData.id) : undefined);
+
     return {
-      userId: decoded.sub || decoded.userId || decoded.id || 'usr_jwt',
+      userId,
       role,
-      customerId: decoded.customerId || (role === 'CUSTOMER' ? (decoded.customerId || decoded.id || decoded.sub) : undefined),
-      email: decoded.email,
-      isAuthenticated: true
-    };
-  }
-
-  // 3. Structured test fixture resolution (Used in automated tests and mock environments)
-  const tokenLower = cleanToken.toLowerCase();
-  if (tokenLower.includes('admin')) {
-    return {
-      userId: 'usr_admin_01',
-      role: 'ADMIN',
-      isAuthenticated: true
-    };
-  }
-
-  if (tokenLower.includes('staff')) {
-    return {
-      userId: 'usr_staff_01',
-      role: 'STAFF',
-      isAuthenticated: true
-    };
-  }
-
-  if (tokenLower.includes('customer') || tokenLower.includes('rahul') || tokenLower.includes('alice') || tokenLower.includes('bob')) {
-    let customerId = 'cst_rahul_01';
-    if (tokenLower.includes('alice')) customerId = 'cst_alice_01';
-    if (tokenLower.includes('bob')) customerId = 'cst_bob_01';
-    if (tokenLower.includes('rahul_02')) customerId = 'cst_rahul_02';
-
-    return {
-      userId: `usr_${customerId}`,
-      role: 'CUSTOMER',
       customerId,
+      email: userData.email,
       isAuthenticated: true
     };
-  }
+  } catch (err: any) {
+    if (err instanceof IdentityVerificationError) {
+      throw err;
+    }
 
-  // Default fallback for generic valid tokens
-  return {
-    userId: 'usr_default',
-    role: 'CUSTOMER',
-    customerId: 'cst_rahul_01',
-    isAuthenticated: true
-  };
+    if (err instanceof BackendHttpError) {
+      if (err.statusCode === 401) {
+        throw new IdentityVerificationError(err.message || 'Invalid or expired authentication token', 401);
+      }
+      if (err.statusCode === 403) {
+        throw new IdentityVerificationError(err.message || 'Forbidden: Access denied by backend identity policy', 403);
+      }
+      // If endpoint returns 404, 500, 501, 502, 503, etc.
+      throw new IdentityVerificationError(
+        `Identity verification unavailable: Authoritative backend endpoint /api/v1/auth/me returned status ${err.statusCode}`,
+        503
+      );
+    }
+
+    // Network error / connection refused / DNS lookup error
+    throw new IdentityVerificationError(
+      `Identity verification unavailable: Unable to reach authoritative backend endpoint /api/v1/auth/me (${err.message})`,
+      503
+    );
+  }
 }
 
 /**

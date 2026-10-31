@@ -4,13 +4,20 @@ import { app } from '../src/index.js';
 import { config } from '../src/config/index.js';
 import { BackendApiClient, BackendHttpError } from '../src/mcp/backendClient.js';
 import { BACKEND_ENDPOINTS } from '../src/config/endpoints.js';
+import { startMockBackendServer, MockServerInstance } from './helpers/mockBackendServer.js';
 
 describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', () => {
   let server: http.Server;
+  let mockServer: MockServerInstance;
+  let originalBackendUrl: string;
   const PORT = 5001;
   const BASE_URL = `http://127.0.0.1:${PORT}`;
 
   beforeAll(async () => {
+    mockServer = await startMockBackendServer();
+    originalBackendUrl = config.backendApiUrl;
+    config.backendApiUrl = mockServer.baseUrl;
+
     // Start AI service independently on port 5001
     await new Promise<void>((resolve, reject) => {
       server = app.listen(PORT, '127.0.0.1', () => {
@@ -21,8 +28,12 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
   });
 
   afterAll(async () => {
+    config.backendApiUrl = originalBackendUrl;
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+    if (mockServer) {
+      await mockServer.close();
     }
   });
 
@@ -66,7 +77,8 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
       const res = await fetch(`${BASE_URL}/api/v1/ai/rag/query`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer live_test_scoped_jwt'
         },
         body: JSON.stringify({
           query: 'What is the refund policy for enterprise customers?'
@@ -103,8 +115,9 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
   describe('3. Live Backend Customer Endpoint Integration & Isolation Preparation', () => {
     it('probes Neeraj backend and cleanly marks live test as BLOCKED if backend is offline', async () => {
       let isBackendOnline = false;
+      const targetBackendUrl = originalBackendUrl || 'http://localhost:5000/api/v1';
       try {
-        const probeRes = await fetch(`${config.backendApiUrl}${BACKEND_ENDPOINTS.customers.list}`, {
+        const probeRes = await fetch(`${targetBackendUrl}${BACKEND_ENDPOINTS.customers.list}`, {
           method: 'GET',
           signal: AbortSignal.timeout(2000)
         });
@@ -116,13 +129,15 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
       if (!isBackendOnline) {
         // Backend is offline on port 5000. Mark integration as BLOCKED without fabricating results
         console.warn(
-          `[LIVE INTEGRATION BLOCKED] Backend service at ${config.backendApiUrl} is currently offline (ECONNREFUSED). ` +
+          `[LIVE INTEGRATION BLOCKED] Backend service at ${targetBackendUrl} is currently offline (ECONNREFUSED). ` +
           `Live customer endpoint verification is blocked until Neeraj's backend service is running.`
         );
 
         // Verify that the client cleanly handles the offline state
+        config.backendApiUrl = targetBackendUrl;
         const offlineClient = new BackendApiClient('test_jwt_account');
         await expect(offlineClient.getCustomerDetails('cst_test_01')).rejects.toThrow(BackendHttpError);
+        config.backendApiUrl = mockServer.baseUrl;
         return;
       }
 

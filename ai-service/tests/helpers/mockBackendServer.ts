@@ -185,12 +185,16 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
 
         // Security: Header Verification
         const authHeader = req.headers['authorization'];
-        if (authHeader === 'Bearer invalid_or_expired_token') {
+        if (
+          authHeader === 'Bearer invalid_or_expired_token' ||
+          authHeader === 'Bearer invalid_jwt' ||
+          authHeader === 'Bearer expired_jwt'
+        ) {
           res.writeHead(401, { 'Content-Type': 'application/json' });
           return res.end(
             JSON.stringify({
               success: false,
-              message: 'Invalid or expired token',
+              message: authHeader === 'Bearer expired_jwt' ? 'Token expired' : 'Invalid or expired token',
               errors: []
             })
           );
@@ -209,17 +213,45 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
 
         // 0. GET /api/v1/auth/me (Authoritative identity endpoint)
         if (pathname === '/api/v1/auth/me') {
-          if (!authHeader || authHeader === 'Bearer invalid_or_expired_token') {
+          if (
+            !authHeader ||
+            authHeader.trim().toLowerCase() === 'bearer' ||
+            authHeader === 'Bearer invalid_or_expired_token' ||
+            authHeader === 'Bearer invalid_jwt' ||
+            authHeader === 'Bearer expired_jwt'
+          ) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ success: false, message: 'Invalid or missing authentication token' }));
+            return res.end(
+              JSON.stringify({
+                success: false,
+                message: authHeader === 'Bearer expired_jwt' ? 'Token expired' : 'Invalid or missing authentication token'
+              })
+            );
           }
 
+          if (authHeader === 'Bearer endpoint_error_503' || authHeader === 'Bearer unavailable_auth_token') {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            return res.end(
+              JSON.stringify({
+                success: false,
+                message: 'Identity verification service temporarily unavailable'
+              })
+            );
+          }
+
+          // Authoritative backend identity resolution:
+          // Even if caller token claims admin, backend authoritative record dictates role!
           let role = 'CUSTOMER';
           let customerId: string | undefined = 'cst_rahul_01';
           let email = 'rahul@sharma.in';
           const headerLower = authHeader.toLowerCase();
 
-          if (headerLower.includes('admin')) {
+          // Forged tokens will NOT get admin role from backend
+          if (headerLower.includes('forged')) {
+            role = 'CUSTOMER';
+            customerId = 'cst_rahul_01';
+            email = 'rahul@sharma.in';
+          } else if (headerLower.includes('admin')) {
             role = 'ADMIN';
             customerId = undefined;
             email = 'admin@brightloop.com';

@@ -4,7 +4,7 @@ import { app } from '../src/index.js';
 import { config } from '../src/config/index.js';
 import { startMockBackendServer, MockServerInstance } from './helpers/mockBackendServer.js';
 import { McpBillingClient } from '../src/mcp/client.js';
-import { resolveAuthIdentity } from '../src/auth/identityResolver.js';
+import { resolveAuthIdentity, IdentityVerificationError } from '../src/auth/identityResolver.js';
 import { BackendApiClient } from '../src/mcp/backendClient.js';
 import { retrieveRelevantDocuments } from '../src/rag/retriever.js';
 import { HuggingFaceFallbackClient } from '../src/fallback/huggingface.js';
@@ -413,6 +413,175 @@ describe('Role-Based AI Hierarchy & RBAC Enforcement [ADMIN, STAFF, CUSTOMER]', 
       expect(res.status).toBe(200);
       const results = res.body.data.results;
       const docIds = results.map((r: any) => r.documentId);
+      expect(docIds).not.toContain('demo_enterprise_terms');
+      expect(docIds).not.toContain('demo_executive_margins');
+    });
+  });
+
+  describe('5. Strict Identity Verification & Authentication Security Audit', () => {
+    it('Missing identity endpoint: throws IdentityVerificationError (503) when /api/v1/auth/me is unavailable', async () => {
+      // Offline client simulating unavailable endpoint
+      const offlineClient = new BackendApiClient('jwt_token_admin');
+      // Temporarily override backend URL to an unreachable endpoint
+      (offlineClient as any).baseUrl = 'http://127.0.0.1:1';
+
+      await expect(resolveAuthIdentity('jwt_token_admin', offlineClient)).rejects.toThrow(
+        IdentityVerificationError
+      );
+
+      try {
+        await resolveAuthIdentity('jwt_token_admin', offlineClient);
+      } catch (err: any) {
+        expect(err.statusCode).toBe(503);
+        expect(err.message).toContain('Identity verification unavailable');
+      }
+    });
+
+    it('Missing identity endpoint: POST /api/v1/ai/chat returns 503 without fallback to unverified roles', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/chat')
+        .set('Authorization', 'Bearer endpoint_error_503')
+        .send({ prompt: 'Show my account balance.' });
+
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('Identity verification unavailable');
+    });
+
+    it('Missing identity endpoint: POST /api/v1/ai/rag/query returns 503 without fallback to unverified roles', async () => {
+      const res = await request(app)
+        .post('/api/v1/ai/rag/query')
+        .set('Authorization', 'Bearer endpoint_error_503')
+        .send({ query: 'What is the refund policy?' });
+
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('Identity verification unavailable');
+    });
+
+    it('Forged JWT role claims: does not trust decoded JWT claims and strictly respects backend /api/v1/auth/me role', async () => {
+      // Attacker constructs a forged JWT with role: "ADMIN" and sub: "usr_attacker"
+      const fakeHeader = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
+      const fakePayload = Buffer.from(
+        JSON.stringify({
+          sub: 'usr_attacker',
+          role: 'ADMIN',
+          customerId: 'cst_all',
+          email: 'attacker@evil.com'
+        })
+      ).toString('base64url');
+      const forgedJwt = `${fakeHeader}.${fakePayload}.fake_signature`;
+
+      // 1. Resolve identity using client connected to mock server
+      // The backend recognizes this user's profile as CUSTOMER (not ADMIN)
+      const client = new BackendApiClient('forged_admin_token');
+      const identity = await resolveAuthIdentity(forgedJwt, client);
+
+      // Identity MUST be CUSTOMER, never ADMIN! Decoded JWT payload role claim is IGNORED!
+      expect(identity.role).toBe('CUSTOMER');
+      expect(identity.customerId).toBe('cst_rahul_01');
+
+      // 2. Attacker attempts to execute ADMIN tool with this identity
+      const mcpClient = new McpBillingClient(forgedJwt, undefined, identity);
+      const res = await mcpClient.callTool('get_revenue_summary', {});
+      expect(res.isError).toBe(true);
+      expect(res.data.statusCode).toBe(403);
+      expect(res.data.isAuthError).toBe(true);
+      expect(res.data.message).toContain('Access Denied');
+
+      await mcpClient.close();
+    });
+
+    it('Invalid JWT: rejects malformed or invalid token with 401 across endpoints', async () => {
+      // Direct resolution
+      await expect(resolveAuthIdentity('invalid_jwt')).rejects.toThrow(IdentityVerificationError);
+      try {
+        await resolveAuthIdentity('invalid_jwt');
+      } catch (err: any) {
+        expect(err.statusCode).toBe(401);
+      }
+
+      // Chat endpoint
+      const chatRes = await request(app)
+        .post('/api/v1/ai/chat')
+        .set('Authorization', 'Bearer invalid_jwt')
+        .send({ prompt: 'Hello' });
+      expect(chatRes.status).toBe(401);
+      expect(chatRes.body.success).toBe(false);
+
+      // RAG endpoint
+      const ragRes = await request(app)
+        .post('/api/v1/ai/rag/query')
+        .set('Authorization', 'Bearer invalid_jwt')
+        .send({ query: 'cancellation policy' });
+      expect(ragRes.status).toBe(401);
+      expect(ragRes.body.success).toBe(false);
+    });
+
+    it('Expired JWT: rejects expired token with 401 across endpoints', async () => {
+      // Direct resolution
+      try {
+        await resolveAuthIdentity('expired_jwt');
+        expect.unreachable('Should have thrown IdentityVerificationError');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(IdentityVerificationError);
+        expect(err.statusCode).toBe(401);
+        expect(err.message).toContain('Token expired');
+      }
+
+      // Chat endpoint
+      const chatRes = await request(app)
+        .post('/api/v1/ai/chat')
+        .set('Authorization', 'Bearer expired_jwt')
+        .send({ prompt: 'Hello' });
+      expect(chatRes.status).toBe(401);
+      expect(chatRes.body.success).toBe(false);
+      expect(chatRes.body.message).toContain('Token expired');
+
+      // RAG endpoint
+      const ragRes = await request(app)
+        .post('/api/v1/ai/rag/query')
+        .set('Authorization', 'Bearer expired_jwt')
+        .send({ query: 'cancellation policy' });
+      expect(ragRes.status).toBe(401);
+      expect(ragRes.body.success).toBe(false);
+      expect(ragRes.body.message).toContain('Token expired');
+    });
+
+    it('Unauthenticated chat request: rejects request without token with 401 and never silently assigns CUSTOMER role', async () => {
+      // Missing token
+      const noTokenRes = await request(app)
+        .post('/api/v1/ai/chat')
+        .send({ prompt: 'Show subscriptions.' });
+      expect(noTokenRes.status).toBe(401);
+      expect(noTokenRes.body.success).toBe(false);
+      expect(noTokenRes.body.message).toContain('Authentication required: Missing Authorization token');
+
+      // Empty token
+      const emptyTokenRes = await request(app)
+        .post('/api/v1/ai/chat')
+        .set('Authorization', 'Bearer   ')
+        .send({ prompt: 'Show subscriptions.' });
+      expect(emptyTokenRes.status).toBe(401);
+      expect(emptyTokenRes.body.success).toBe(false);
+      expect(emptyTokenRes.body.message).toContain('Authentication required: Empty Authorization token');
+    });
+
+    it('Unauthorized RAG query: rejects unauthenticated query with 401 and denies privileged docs to unverified roles', async () => {
+      // Unauthenticated RAG query
+      const noTokenRes = await request(app)
+        .post('/api/v1/ai/rag/query')
+        .send({ query: 'enterprise net-30 terms' });
+      expect(noTokenRes.status).toBe(401);
+      expect(noTokenRes.body.success).toBe(false);
+      expect(noTokenRes.body.message).toContain('Authentication required');
+
+      // Unverified role in retrieveRelevantDocuments defaults to CUSTOMER (least privilege)
+      const retrieval = await retrieveRelevantDocuments('Net-30 margins', {
+        userRole: 'UNVERIFIED_GUEST_ROLE',
+        includeDemoFixtures: true
+      });
+      const docIds = retrieval.results.map((r) => r.documentId);
       expect(docIds).not.toContain('demo_enterprise_terms');
       expect(docIds).not.toContain('demo_executive_margins');
     });

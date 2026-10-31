@@ -70,9 +70,10 @@ app.post('/api/v1/ai/chat', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    const statusCode = error.statusCode || (error.isAuthError ? 401 : 500);
     return errorResponse(res, {
       message: error.message || 'Error processing AI request',
-      statusCode: 500
+      statusCode
     });
   }
 });
@@ -87,10 +88,10 @@ app.post('/api/v1/ai/rag/query', async (req: Request, res: Response) => {
     });
   }
 
-  const jwtToken = req.headers.authorization;
-  const identity = await resolveAuthIdentity(jwtToken);
-
   try {
+    const jwtToken = req.headers.authorization;
+    const identity = await resolveAuthIdentity(jwtToken);
+
     // Permission-aware document filtering based on verified user role
     const retrieval = await retrieveRelevantDocuments(query, {
       topK: typeof topK === 'number' ? topK : 3,
@@ -119,9 +120,10 @@ app.post('/api/v1/ai/rag/query', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    const statusCode = error.statusCode || (error.isAuthError ? 401 : 500);
     return errorResponse(res, {
       message: error.message || 'Error executing semantic search',
-      statusCode: 500
+      statusCode
     });
   }
 });
