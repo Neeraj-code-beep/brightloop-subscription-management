@@ -17,6 +17,7 @@ import { taxesRouter } from './modules/taxes/taxes.routes.js';
 import { discountsRouter } from './modules/discounts/discounts.routes.js';
 import { paymentsRouter } from './modules/payments/payments.routes.js';
 import { analyticsRouter } from './modules/analytics/analytics.routes.js';
+import { aiRouter } from './modules/ai/ai.routes.js';
 
 export const app = express();
 
@@ -72,6 +73,7 @@ app.use('/api/v1/taxes', taxesRouter);
 app.use('/api/v1/discounts', discountsRouter);
 app.use('/api/v1/payments', paymentsRouter);
 app.use('/api/v1/analytics', analyticsRouter);
+app.use('/api/v1/ai', aiRouter);
 
 // 404 Handler
 app.use((req, res) => {

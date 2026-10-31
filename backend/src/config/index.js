@@ -14,6 +14,10 @@ export const config = {
   redis: {
     url: process.env.REDIS_URL || 'redis://localhost:6379'
   },
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173'
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  aiService: {
+    url: process.env.AI_SERVICE_URL || 'http://localhost:5001',
+    timeoutMs: parseInt(process.env.AI_SERVICE_TIMEOUT_MS || '30000', 10)
+  }
 };
 

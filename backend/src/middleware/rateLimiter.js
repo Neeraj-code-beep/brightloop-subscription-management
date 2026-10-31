@@ -15,3 +15,16 @@ export const authRateLimiter = rateLimit({
   }
 });
 
+export const aiRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // Limit each IP to 60 AI requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test', // Bypass in test environment
+  handler: (req, res) => {
+    return errorResponse(res, {
+      message: 'Too many requests to the AI service. Please slow down and try again later.',
+      statusCode: 429
+    });
+  }
+});
