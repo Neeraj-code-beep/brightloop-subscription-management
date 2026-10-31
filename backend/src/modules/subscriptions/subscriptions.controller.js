@@ -1,0 +1,113 @@
+import { subscriptionsService } from './subscriptions.service.js';
+import { successResponse } from '../../utils/response.js';
+
+export class SubscriptionsController {
+  async createSubscription(req, res, next) {
+    try {
+      const subscription = await subscriptionsService.createSubscription(req.validatedBody);
+      return successResponse(res, {
+        statusCode: 201,
+        message: 'Subscription created successfully',
+        data: subscription
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listSubscriptions(req, res, next) {
+    try {
+      const result = await subscriptionsService.listSubscriptions(req.query, req.user);
+      return successResponse(res, {
+        statusCode: 200,
+        message: 'Subscriptions retrieved successfully',
+        data: result
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getSubscriptionById(req, res, next) {
+    try {
+      const subscription = await subscriptionsService.getSubscriptionById(req.params.id, req.user);
+      return successResponse(res, {
+        statusCode: 200,
+        message: 'Subscription details retrieved successfully',
+        data: subscription
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateSubscription(req, res, next) {
+    try {
+      const updated = await subscriptionsService.updateSubscription(req.params.id, req.validatedBody);
+      return successResponse(res, {
+        statusCode: 200,
+        message: 'Subscription updated successfully',
+        data: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async updateSubscriptionStatus(req, res, next) {
+    try {
+      const updated = await subscriptionsService.updateSubscriptionStatus(req.params.id, req.validatedBody.status);
+      return successResponse(res, {
+        statusCode: 200,
+        message: `Subscription status updated to ${req.validatedBody.status}`,
+        data: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async pauseSubscription(req, res, next) {
+    try {
+      const updated = await subscriptionsService.pauseSubscription(req.params.id);
+      return successResponse(res, {
+        statusCode: 200,
+        message: 'Subscription paused successfully',
+        data: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async resumeSubscription(req, res, next) {
+    try {
+      const updated = await subscriptionsService.resumeSubscription(req.params.id);
+      return successResponse(res, {
+        statusCode: 200,
+        message: 'Subscription resumed successfully',
+        data: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async cancelSubscription(req, res, next) {
+    try {
+      const updated = await subscriptionsService.cancelSubscription(req.params.id, req.validatedBody);
+      return successResponse(res, {
+        statusCode: 200,
+        message: req.validatedBody.immediate
+          ? 'Subscription cancelled immediately'
+          : 'Subscription scheduled for cancellation at period end',
+        data: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+export const subscriptionsController = new SubscriptionsController();
+

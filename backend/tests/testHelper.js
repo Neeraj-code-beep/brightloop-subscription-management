@@ -13,7 +13,12 @@ export function createMockPrisma() {
     products: [],
     productVariants: [],
     plans: [],
-    planVariants: []
+    planVariants: [],
+    quotations: [],
+    quotationItems: [],
+    subscriptionItems: [],
+    taxes: [],
+    discounts: []
   };
 
   const projectSelect = (item, select) => {
@@ -90,7 +95,7 @@ export function createMockPrisma() {
         if (where.isActive !== undefined) list = list.filter(u => u.isActive === where.isActive);
         return list.slice(skip, skip + take).map(u => ({ ...u }));
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.users];
         if (where.role) list = list.filter(u => u.role === where.role);
         return list.length;
@@ -190,7 +195,7 @@ export function createMockPrisma() {
         const paginated = sorted.slice(skip, skip + take);
         return paginated.map(item => projectSelect(item, select));
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.customers];
         if (where.customerType) {
           list = list.filter(c => c.customerType === where.customerType);
@@ -338,33 +343,443 @@ export function createMockPrisma() {
       }
     },
 
-    subscription: {
-      findUnique: async ({ where }) => {
-        return state.subscriptions.find(s => s.id === where.id) || null;
-      },
-      findMany: async ({ where = {}, skip = 0, take = 20, select }) => {
-        let list = [...state.subscriptions];
-        if (where.customerId) {
-          list = list.filter(s => s.customerId === where.customerId);
+    quotation: {
+      findUnique: async ({ where, include, select }) => {
+        let q = null;
+        if (where.id) q = state.quotations.find(x => x.id === where.id);
+        else if (where.quotationNumber) q = state.quotations.find(x => x.quotationNumber === where.quotationNumber);
+        if (!q) return null;
+
+        const res = { ...q };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === q.customerId) || null;
         }
-        return list.slice(skip, skip + take).map(s => projectSelect(s, select));
-      },
-      count: async ({ where = {} }) => {
-        let list = [...state.subscriptions];
-        if (where.customerId) {
-          list = list.filter(s => s.customerId === where.customerId);
+        if (include?.items) {
+          res.items = state.quotationItems
+            .filter(item => item.quotationId === q.id)
+            .map(item => {
+              const itemCopy = { ...item };
+              if (include.items.include?.product) {
+                itemCopy.product = state.products.find(p => p.id === item.productId) || null;
+              }
+              if (include.items.include?.plan) {
+                itemCopy.plan = state.plans.find(p => p.id === item.planId) || null;
+              }
+              return itemCopy;
+            });
         }
+        if (include?.subscription) {
+          res.subscription = state.subscriptions.find(s => s.quotationId === q.id) || null;
+        }
+        return projectSelect(res, select);
+      },
+      findFirst: async ({ where }) => {
+        let list = [...state.quotations];
+        if (where.customerId) list = list.filter(q => q.customerId === where.customerId);
+        if (where.status) list = list.filter(q => q.status === where.status);
+        return list[0] ? { ...list[0] } : null;
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
+        let list = [...state.quotations];
+        if (where.customerId) list = list.filter(q => q.customerId === where.customerId);
+        if (where.status) list = list.filter(q => q.status === where.status);
+        if (where.OR) {
+          list = list.filter(q => {
+            return where.OR.some(cond => {
+              if (cond.quotationNumber?.contains) {
+                return q.quotationNumber.toLowerCase().includes(String(cond.quotationNumber.contains).toLowerCase());
+              }
+              if (cond.notes?.contains && q.notes) {
+                return q.notes.toLowerCase().includes(String(cond.notes.contains).toLowerCase());
+              }
+              return false;
+            });
+          });
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(q => q.id === cursor.id);
+          if (idx !== -1) startIndex = idx + (skip || 0);
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(q => {
+          const res = { ...q };
+          if (include?.customer) {
+            res.customer = state.customers.find(c => c.id === q.customerId) || null;
+          }
+          if (include?.items) {
+            res.items = state.quotationItems
+              .filter(item => item.quotationId === q.id)
+              .map(item => {
+                const itemCopy = { ...item };
+                if (include.items.include?.product) {
+                  itemCopy.product = state.products.find(p => p.id === item.productId) || null;
+                }
+                if (include.items.include?.plan) {
+                  itemCopy.plan = state.plans.find(p => p.id === item.planId) || null;
+                }
+                return itemCopy;
+              });
+          }
+          if (include?.subscription) {
+            res.subscription = state.subscriptions.find(s => s.quotationId === q.id) || null;
+          }
+          return projectSelect(res, select);
+        });
+      },
+      count: async ({ where = {} } = {}) => {
+        let list = [...state.quotations];
+        if (where.customerId) list = list.filter(q => q.customerId === where.customerId);
+        if (where.status) list = list.filter(q => q.status === where.status);
         return list.length;
       },
-      create: async ({ data }) => {
-        const sub = {
-          id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          ...data,
+      create: async ({ data, include, select }) => {
+        const id = `quo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newQuo = {
+          id,
+          quotationNumber: data.quotationNumber,
+          customerId: data.customerId,
+          status: data.status || 'DRAFT',
+          currency: data.currency || 'INR',
+          subtotal: data.subtotal,
+          discountAmount: data.discountAmount,
+          taxAmount: data.taxAmount,
+          grandTotal: data.grandTotal,
+          validUntil: data.validUntil,
+          notes: data.notes || null,
+          termsAndConditions: data.termsAndConditions || null,
           createdAt: new Date(),
           updatedAt: new Date()
         };
-        state.subscriptions.push(sub);
-        return sub;
+        state.quotations.push(newQuo);
+
+        if (data.items?.create) {
+          for (const item of data.items.create) {
+            state.quotationItems.push({
+              id: `qi_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              quotationId: id,
+              ...item,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+          }
+        }
+
+        const res = { ...newQuo };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === newQuo.customerId) || null;
+        }
+        if (include?.items) {
+          res.items = state.quotationItems
+            .filter(item => item.quotationId === id)
+            .map(item => {
+              const itemCopy = { ...item };
+              if (include.items.include?.product) {
+                itemCopy.product = state.products.find(p => p.id === item.productId) || null;
+              }
+              if (include.items.include?.plan) {
+                itemCopy.plan = state.plans.find(p => p.id === item.planId) || null;
+              }
+              return itemCopy;
+            });
+        }
+        return projectSelect(res, select);
+      },
+      update: async ({ where, data, include, select }) => {
+        const idx = state.quotations.findIndex(q => q.id === where.id);
+        if (idx === -1) throw new Error('Quotation not found');
+        state.quotations[idx] = { ...state.quotations[idx], ...data, updatedAt: new Date() };
+
+        const res = { ...state.quotations[idx] };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === res.customerId) || null;
+        }
+        if (include?.items) {
+          res.items = state.quotationItems
+            .filter(item => item.quotationId === where.id)
+            .map(item => {
+              const itemCopy = { ...item };
+              if (include.items.include?.product) {
+                itemCopy.product = state.products.find(p => p.id === item.productId) || null;
+              }
+              if (include.items.include?.plan) {
+                itemCopy.plan = state.plans.find(p => p.id === item.planId) || null;
+              }
+              return itemCopy;
+            });
+        }
+        if (include?.subscription) {
+          res.subscription = state.subscriptions.find(s => s.quotationId === where.id) || null;
+        }
+        return projectSelect(res, select);
+      }
+    },
+
+    quotationItem: {
+      deleteMany: async ({ where = {} }) => {
+        const before = state.quotationItems.length;
+        if (where.quotationId) {
+          state.quotationItems = state.quotationItems.filter(item => item.quotationId !== where.quotationId);
+        }
+        return { count: before - state.quotationItems.length };
+      },
+      createMany: async ({ data = [] }) => {
+        let count = 0;
+        for (const item of data) {
+          state.quotationItems.push({
+            id: `qi_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            ...item,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          count++;
+        }
+        return { count };
+      },
+      findMany: async ({ where = {} }) => {
+        let list = [...state.quotationItems];
+        if (where.quotationId) list = list.filter(i => i.quotationId === where.quotationId);
+        return list;
+      }
+    },
+
+    subscription: {
+      findUnique: async ({ where, include, select }) => {
+        let s = null;
+        if (where.id) s = state.subscriptions.find(x => x.id === where.id);
+        else if (where.quotationId) s = state.subscriptions.find(x => x.quotationId === where.quotationId);
+        else if (where.subscriptionNumber) s = state.subscriptions.find(x => x.subscriptionNumber === where.subscriptionNumber);
+        if (!s) return null;
+
+        const res = { ...s };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === s.customerId) || null;
+        }
+        if (include?.plan) {
+          const plan = state.plans.find(p => p.id === s.planId) || null;
+          if (plan) {
+            const planCopy = { ...plan };
+            if (include.plan.include?.product) {
+              planCopy.product = state.products.find(p => p.id === plan.productId) || null;
+            }
+            res.plan = planCopy;
+          } else {
+            res.plan = null;
+          }
+        }
+        if (include?.items) {
+          res.items = state.subscriptionItems.filter(item => item.subscriptionId === s.id);
+        }
+        return projectSelect(res, select);
+      },
+      findFirst: async ({ where }) => {
+        let list = [...state.subscriptions];
+        if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
+        if (where.status) list = list.filter(s => s.status === where.status);
+        if (where.quotationId) list = list.filter(s => s.quotationId === where.quotationId);
+        return list[0] ? { ...list[0] } : null;
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
+        let list = [...state.subscriptions];
+        if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
+        if (where.status) list = list.filter(s => s.status === where.status);
+        if (where.planId) list = list.filter(s => s.planId === where.planId);
+        if (where.subscriptionNumber?.contains) {
+          const search = String(where.subscriptionNumber.contains).toLowerCase();
+          list = list.filter(s => s.subscriptionNumber && s.subscriptionNumber.toLowerCase().includes(search));
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(s => s.id === cursor.id);
+          if (idx !== -1) startIndex = idx + (skip || 0);
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(s => {
+          const res = { ...s };
+          if (include?.customer) {
+            res.customer = state.customers.find(c => c.id === s.customerId) || null;
+          }
+          if (include?.plan) {
+            const plan = state.plans.find(p => p.id === s.planId) || null;
+            if (plan) {
+              const planCopy = { ...plan };
+              if (include.plan.include?.product) {
+                planCopy.product = state.products.find(p => p.id === plan.productId) || null;
+              }
+              res.plan = planCopy;
+            } else {
+              res.plan = null;
+            }
+          }
+          if (include?.items) {
+            res.items = state.subscriptionItems.filter(item => item.subscriptionId === s.id);
+          }
+          return projectSelect(res, select);
+        });
+      },
+      count: async ({ where = {} } = {}) => {
+        let list = [...state.subscriptions];
+        if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
+        if (where.status) list = list.filter(s => s.status === where.status);
+        if (where.planId) list = list.filter(s => s.planId === where.planId);
+        return list.length;
+      },
+      create: async ({ data, include, select }) => {
+        const id = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newSub = {
+          id,
+          subscriptionNumber: data.subscriptionNumber || `SUB-${Date.now()}`,
+          customerId: data.customerId,
+          planId: data.planId || null,
+          quotationId: data.quotationId || null,
+          status: data.status || 'ACTIVE',
+          startDate: data.startDate || new Date(),
+          currentPeriodStart: data.currentPeriodStart || new Date(),
+          currentPeriodEnd: data.currentPeriodEnd || new Date(),
+          nextBillingDate: data.nextBillingDate || null,
+          endDate: data.endDate || null,
+          cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
+          canceledAt: data.canceledAt || null,
+          cancellationReason: data.cancellationReason || null,
+          pausedAt: data.pausedAt || null,
+          resumedAt: data.resumedAt || null,
+          billingCycle: data.billingCycle || 'MONTHLY',
+          recurringPrice: data.recurringPrice || '0.00',
+          setupFee: data.setupFee || '0.00',
+          currency: data.currency || 'INR',
+          metadata: data.metadata || {},
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.subscriptions.push(newSub);
+
+        if (data.items?.create) {
+          for (const item of data.items.create) {
+            state.subscriptionItems.push({
+              id: `si_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              subscriptionId: id,
+              ...item,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+          }
+        }
+
+        const res = { ...newSub };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === newSub.customerId) || null;
+        }
+        if (include?.plan) {
+          res.plan = state.plans.find(p => p.id === newSub.planId) || null;
+        }
+        if (include?.items) {
+          res.items = state.subscriptionItems.filter(item => item.subscriptionId === id);
+        }
+        return projectSelect(res, select);
+      },
+      update: async ({ where, data, include, select }) => {
+        const idx = state.subscriptions.findIndex(s => s.id === where.id);
+        if (idx === -1) throw new Error('Subscription not found');
+        state.subscriptions[idx] = { ...state.subscriptions[idx], ...data, updatedAt: new Date() };
+
+        const res = { ...state.subscriptions[idx] };
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === res.customerId) || null;
+        }
+        if (include?.plan) {
+          res.plan = state.plans.find(p => p.id === res.planId) || null;
+        }
+        if (include?.items) {
+          res.items = state.subscriptionItems.filter(item => item.subscriptionId === where.id);
+        }
+        return projectSelect(res, select);
+      }
+    },
+
+    subscriptionItem: {
+      createMany: async ({ data = [] }) => {
+        let count = 0;
+        for (const item of data) {
+          state.subscriptionItems.push({
+            id: `si_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            ...item,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          count++;
+        }
+        return { count };
+      },
+      findMany: async ({ where = {} }) => {
+        let list = [...state.subscriptionItems];
+        if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
+        return list;
+      }
+    },
+
+    tax: {
+      findUnique: async ({ where }) => {
+        return state.taxes.find(t => t.id === where.id) || null;
+      },
+      findMany: async ({ where = {} }) => {
+        let list = [...state.taxes];
+        if (where.isActive !== undefined) list = list.filter(t => t.isActive === where.isActive);
+        return list;
+      },
+      create: async ({ data }) => {
+        const t = {
+          id: `tax_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: data.name,
+          percentage: data.percentage,
+          jurisdiction: data.jurisdiction || 'Default',
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.taxes.push(t);
+        return t;
+      }
+    },
+
+    discount: {
+      findUnique: async ({ where }) => {
+        let d = null;
+        if (where.id) d = state.discounts.find(x => x.id === where.id);
+        else if (where.code) d = state.discounts.find(x => x.code === where.code);
+        return d || null;
+      },
+      findMany: async ({ where = {} }) => {
+        let list = [...state.discounts];
+        if (where.isActive !== undefined) list = list.filter(d => d.isActive === where.isActive);
+        return list;
+      },
+      create: async ({ data }) => {
+        const d = {
+          id: `disc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          code: data.code,
+          type: data.type || 'PERCENTAGE',
+          value: data.value,
+          currency: data.currency || null,
+          validFrom: data.validFrom || new Date(),
+          validTo: data.validTo || null,
+          maxRedemptions: data.maxRedemptions || null,
+          timesRedeemed: 0,
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.discounts.push(d);
+        return d;
       }
     },
 
@@ -379,7 +794,7 @@ export function createMockPrisma() {
         }
         return list.slice(skip, skip + take).map(i => projectSelect(i, select));
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.invoices];
         if (where.customerId) {
           list = list.filter(i => i.customerId === where.customerId);
@@ -418,7 +833,7 @@ export function createMockPrisma() {
           return projectSelect({ ...p, invoice: inv }, select);
         });
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.payments];
         if (where.invoice?.customerId) {
           list = list.filter(p => {
@@ -490,7 +905,7 @@ export function createMockPrisma() {
           return projectSelect(res, select);
         });
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.products];
         if (where.type) list = list.filter(p => p.type === where.type);
         if (where.isActive !== undefined) list = list.filter(p => p.isActive === where.isActive);
@@ -575,7 +990,7 @@ export function createMockPrisma() {
         const sliced = sorted.slice(startIndex, startIndex + take);
         return sliced.map(v => projectSelect(v, select));
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.productVariants];
         if (where.productId) list = list.filter(v => v.productId === where.productId);
         if (where.isActive !== undefined) list = list.filter(v => v.isActive === where.isActive);
@@ -677,7 +1092,7 @@ export function createMockPrisma() {
           return projectSelect(res, select);
         });
       },
-      count: async ({ where = {} }) => {
+      count: async ({ where = {} } = {}) => {
         let list = [...state.plans];
         if (where.productId) list = list.filter(p => p.productId === where.productId);
         if (where.billingCycle) list = list.filter(p => p.billingCycle === where.billingCycle);

@@ -204,6 +204,7 @@ model Product {
   isActive    Boolean          @default(true)
   variants    ProductVariant[]
   plans       Plan[]
+  quotationItems QuotationItem[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -255,6 +256,8 @@ model Plan {
   priceInCents       Int                @default(0)
   planVariants       PlanVariant[]
   subscriptionItems  SubscriptionItem[]
+  quotationItems     QuotationItem[]
+  subscriptions      Subscription[]
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
@@ -278,38 +281,84 @@ model PlanVariant {
 }
 
 model Quotation {
-  id               String          @id @default(cuid())
-  quotationNumber  String          @unique
-  customerId       String
-  customer         Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  status           QuotationStatus @default(DRAFT)
-  subtotalInCents  Int             @default(0)
-  taxInCents       Int             @default(0)
-  discountInCents  Int             @default(0)
-  totalInCents     Int             @default(0)
-  validUntil       DateTime
+  id                 String          @id @default(cuid())
+  quotationNumber    String          @unique
+  customerId         String
+  customer           Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  status             QuotationStatus @default(DRAFT)
+  currency           String          @default("INR")
+  subtotal           Decimal         @default(0.00) @db.Decimal(12, 2)
+  discountAmount     Decimal         @default(0.00) @db.Decimal(12, 2)
+  taxAmount          Decimal         @default(0.00) @db.Decimal(12, 2)
+  grandTotal         Decimal         @default(0.00) @db.Decimal(12, 2)
+  subtotalInCents    Int             @default(0)
+  taxInCents         Int             @default(0)
+  discountInCents    Int             @default(0)
+  totalInCents       Int             @default(0)
+  validUntil         DateTime
+  notes              String?
   termsAndConditions String?
-  subscription     Subscription?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  subscription       Subscription?
+  items              QuotationItem[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
   @@index([customerId])
   @@index([status])
+  @@index([createdAt, id])
+}
+
+model QuotationItem {
+  id               String    @id @default(cuid())
+  quotationId      String
+  quotation        Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId        String
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  planId           String?
+  plan             Plan?     @relation(fields: [planId], references: [id], onDelete: Restrict)
+  description      String?
+  quantity         Int       @default(1)
+  unitPrice        Decimal   @default(0.00) @db.Decimal(12, 2)
+  setupFee         Decimal   @default(0.00) @db.Decimal(12, 2)
+  discountAmount   Decimal   @default(0.00) @db.Decimal(12, 2)
+  taxAmount        Decimal   @default(0.00) @db.Decimal(12, 2)
+  taxRate          Decimal   @default(0.00) @db.Decimal(5, 2)
+  lineTotal        Decimal   @default(0.00) @db.Decimal(12, 2)
+  selectedVariants Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([quotationId])
+  @@index([productId])
+  @@index([planId])
+  @@index([createdAt, id])
 }
 
 model Subscription {
   id                 String             @id @default(cuid())
+  subscriptionNumber String             @unique
   customerId         String
   customer           Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  planId             String?
+  plan               Plan?              @relation(fields: [planId], references: [id], onDelete: SetNull)
   quotationId        String?            @unique
   quotation          Quotation?         @relation(fields: [quotationId], references: [id], onDelete: SetNull)
   status             SubscriptionStatus @default(ACTIVE)
+  startDate          DateTime           @default(now())
   currentPeriodStart DateTime
   currentPeriodEnd   DateTime
+  nextBillingDate    DateTime?
+  endDate            DateTime?
   cancelAtPeriodEnd  Boolean            @default(false)
   canceledAt         DateTime?
-  billingCycleAnchor DateTime
-  currency           String             @default("USD")
+  cancellationReason String?
+  pausedAt           DateTime?
+  resumedAt          DateTime?
+  billingCycleAnchor DateTime           @default(now())
+  billingCycle       BillingCycle       @default(MONTHLY)
+  recurringPrice     Decimal            @default(0.00) @db.Decimal(12, 2)
+  setupFee           Decimal            @default(0.00) @db.Decimal(12, 2)
+  currency           String             @default("INR")
   discountId         String?
   discount           Discount?          @relation(fields: [discountId], references: [id], onDelete: SetNull)
   items              SubscriptionItem[]
@@ -320,6 +369,8 @@ model Subscription {
 
   @@index([customerId, status])
   @@index([currentPeriodEnd])
+  @@index([planId])
+  @@index([createdAt, id])
 }
 
 model SubscriptionItem {
@@ -329,11 +380,16 @@ model SubscriptionItem {
   planId           String
   plan             Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
   quantity         Int          @default(1)
-  unitPriceInCents Int
+  unitPriceInCents Int          @default(0)
+  unitPrice        Decimal      @default(0.00) @db.Decimal(12, 2)
+  lineTotal        Decimal      @default(0.00) @db.Decimal(12, 2)
+  selectedVariants Json?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
   @@index([subscriptionId])
+  @@index([planId])
+  @@index([createdAt, id])
 }
 
 model Invoice {

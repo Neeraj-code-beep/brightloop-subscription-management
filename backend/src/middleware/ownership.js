@@ -4,7 +4,7 @@ import { errorResponse } from '../utils/response.js';
 /**
  * Reusable Customer Ownership and IDOR prevention middleware
  *
- * @param {'customer' | 'invoice' | 'subscription' | 'payment'} resourceType
+ * @param {'customer' | 'invoice' | 'quotation' | 'subscription' | 'payment'} resourceType
  * @param {string} paramKey - URL parameter containing the resource ID (default: 'id')
  */
 export function authorizeOwnership(resourceType, paramKey = 'id') {
@@ -77,6 +77,30 @@ export function authorizeOwnership(resourceType, paramKey = 'id') {
             }
 
             req.resource = invoice;
+            return next();
+          }
+
+                    case 'quotation': {
+            const quotation = await prisma.quotation.findUnique({
+              where: { id: resourceId },
+              select: { id: true, customerId: true }
+            });
+
+            if (!quotation) {
+              return errorResponse(res, {
+                message: 'Quotation not found',
+                statusCode: 404
+              });
+            }
+
+            if (quotation.customerId !== customerId) {
+              return errorResponse(res, {
+                message: 'Access denied: you do not own this quotation',
+                statusCode: 403
+              });
+            }
+
+            req.resource = quotation;
             return next();
           }
 

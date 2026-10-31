@@ -163,53 +163,100 @@ Defines software offerings, add-ons, seats, and recurring billing plans.
 
 ---
 
-### 2.4 Quotation
-Sales proposals and agreements generated for prospective or existing customers before active subscription.
+### 2.4 Quotation & QuotationItem
+Sales proposals, agreements, and price quotations generated for prospective or existing customers before active subscription.
+
+- **QuotationStatus**
+  - Enum values: `DRAFT`, `SENT`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `CONVERTED`
 
 - **Quotation**
-  - `id`: `String` (PK)
-  - `quotationNumber`: `String` (Unique, e.g. `QT-2026-0001`)
-  - `customerId`: `String` (FK -> `Customer.id`)
-  - `status`: `Enum` (`DRAFT`, `SENT`, `ACCEPTED`, `REJECTED`, `EXPIRED`)
-  - `subtotalInCents`: `Int`
-  - `taxInCents`: `Int`
-  - `discountInCents`: `Int`
-  - `totalInCents`: `Int`
+  - `id`: `String` (PK, CUID)
+  - `quotationNumber`: `String` (Unique, e.g. `QUO-000001`, Indexed)
+  - `customerId`: `String` (FK -> `Customer.id`, Cascade Delete, Indexed)
+  - `quotationDate`: `DateTime` (Default: `now()`)
   - `validUntil`: `DateTime`
+  - `status`: `QuotationStatus` (Default: `DRAFT`, Indexed)
+  - `currency`: `String` (Default: `"INR"`)
+  - `subtotal`: `Decimal(12, 2)` (Default: `0.00`)
+  - `discountAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `taxAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `grandTotal`: `Decimal(12, 2)` (Default: `0.00`)
+  - `subtotalInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `taxInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `discountInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `totalInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `notes`: `String?`
   - `termsAndConditions`: `String?`
   - `convertedSubscriptionId`: `String?` (FK -> `Subscription.id`)
-  - `createdAt`: `DateTime`
+  - `createdAt`: `DateTime` (Default: `now()`)
   - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
+
+- **QuotationItem**
+  - `id`: `String` (PK, CUID)
+  - `quotationId`: `String` (FK -> `Quotation.id`, Cascade Delete, Indexed)
+  - `productId`: `String` (FK -> `Product.id`, Indexed)
+  - `planId`: `String?` (FK -> `Plan.id`, Indexed)
+  - `quantity`: `Int` (Default: `1`)
+  - `unitPrice`: `Decimal(12, 2)` (Authoritative price snapshot)
+  - `setupFee`: `Decimal(12, 2)` (Default: `0.00`)
+  - `discountAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `taxAmount`: `Decimal(12, 2)` (Default: `0.00`)
+  - `taxRate`: `Decimal(5, 2)` (Default: `0.00`)
+  - `lineTotal`: `Decimal(12, 2)` (Calculated line total snapshot)
+  - `selectedVariants`: `Json?` (Array of selected variant snapshots)
+  - `createdAt`: `DateTime` (Default: `now()`)
+  - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 ---
 
 ### 2.5 Subscription & SubscriptionItem
 Recurring contracts associated with customers.
 
+- **SubscriptionStatus**
+  - Enum values: `PENDING`, `TRIALING`, `ACTIVE`, `PAST_DUE`, `PAUSED`, `CANCELED`, `EXPIRED`
+
 - **Subscription**
-  - `id`: `String` (PK)
-  - `customerId`: `String` (FK -> `Customer.id`)
-  - `quotationId`: `String?` (FK -> `Quotation.id`)
-  - `status`: `Enum` (`TRIALING`, `ACTIVE`, `PAST_DUE`, `PAUSED`, `CANCELED`, `EXPIRED`)
+  - `id`: `String` (PK, CUID)
+  - `subscriptionNumber`: `String` (Unique, e.g. `SUB-000001`, Indexed)
+  - `customerId`: `String` (FK -> `Customer.id`, Cascade Delete, Indexed)
+  - `planId`: `String?` (FK -> `Plan.id`, Indexed)
+  - `quotationId`: `String?` (Unique FK -> `Quotation.id`, Indexed)
+  - `status`: `SubscriptionStatus` (Default: `PENDING`, Indexed)
+  - `startDate`: `DateTime` (Default: `now()`)
   - `currentPeriodStart`: `DateTime`
   - `currentPeriodEnd`: `DateTime`
+  - `nextBillingDate`: `DateTime?`
+  - `endDate`: `DateTime?`
+  - `billingCycle`: `BillingCycle` (Default: `MONTHLY`)
+  - `recurringPrice`: `Decimal(12, 2)` (Default: `0.00`)
+  - `setupFee`: `Decimal(12, 2)` (Default: `0.00`)
+  - `currency`: `String` (Default: `"INR"`)
   - `cancelAtPeriodEnd`: `Boolean` (Default: `false`)
   - `canceledAt`: `DateTime?`
+  - `cancellationReason`: `String?`
+  - `pausedAt`: `DateTime?`
+  - `resumedAt`: `DateTime?`
   - `billingCycleAnchor`: `DateTime`
-  - `currency`: `String`
   - `discountId`: `String?` (FK -> `Discount.id`)
   - `metadata`: `Json?`
-  - `createdAt`: `DateTime`
+  - `createdAt`: `DateTime` (Default: `now()`)
   - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 - **SubscriptionItem**
-  - `id`: `String` (PK)
-  - `subscriptionId`: `String` (FK -> `Subscription.id`, Cascade Delete)
-  - `planId`: `String` (FK -> `Plan.id`)
+  - `id`: `String` (PK, CUID)
+  - `subscriptionId`: `String` (FK -> `Subscription.id`, Cascade Delete, Indexed)
+  - `planId`: `String` (FK -> `Plan.id`, Indexed)
   - `quantity`: `Int` (Default: `1`)
-  - `unitPriceInCents`: `Int` (Locked price at time of subscription)
-  - `createdAt`: `DateTime`
+  - `unitPrice`: `Decimal(12, 2)` (Default: `0.00`, locked price snapshot)
+  - `lineTotal`: `Decimal(12, 2)` (Default: `0.00`)
+  - `selectedVariants`: `Json?` (Array of selected variant snapshots)
+  - `unitPriceInCents`: `Int` (Default: `0`, legacy compatibility)
+  - `createdAt`: `DateTime` (Default: `now()`)
   - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 ---
 
