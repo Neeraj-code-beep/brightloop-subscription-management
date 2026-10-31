@@ -9,7 +9,7 @@ export function createMcpServer(backendClient?: BackendApiClient) {
   const server = new Server(
     {
       name: 'brightloop-billing-mcp',
-      version: '1.0.0'
+      version: '1.1.0'
     },
     {
       capabilities: {
@@ -36,8 +36,10 @@ export function createMcpServer(backendClient?: BackendApiClient) {
       switch (name) {
         case 'search_customer': {
           const query = String(toolArgs.query || '');
-          const limit = Number(toolArgs.limit) || 10;
-          result = await client.searchCustomers(query, limit);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 10;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.searchCustomers(query, { page, limit, cursor });
           break;
         }
 
@@ -50,15 +52,20 @@ export function createMcpServer(backendClient?: BackendApiClient) {
         case 'get_customer_subscriptions': {
           const customerId = String(toolArgs.customerId || '');
           const status = toolArgs.status ? String(toolArgs.status) : undefined;
-          result = await client.getCustomerSubscriptions(customerId, status);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 20;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.getCustomerSubscriptions(customerId, { status, page, limit, cursor });
           break;
         }
 
         case 'get_customer_invoice_history': {
           const customerId = String(toolArgs.customerId || '');
           const status = toolArgs.status ? String(toolArgs.status) : undefined;
-          const limit = Number(toolArgs.limit) || 20;
-          result = await client.getCustomerInvoices(customerId, status, limit);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 20;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.getCustomerInvoices(customerId, { status, page, limit, cursor });
           break;
         }
 
@@ -70,8 +77,10 @@ export function createMcpServer(backendClient?: BackendApiClient) {
 
         case 'get_customer_payment_history': {
           const customerId = String(toolArgs.customerId || '');
-          const limit = Number(toolArgs.limit) || 20;
-          result = await client.getCustomerPayments(customerId, limit);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 20;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.getCustomerPayments(customerId, { page, limit, cursor });
           break;
         }
 

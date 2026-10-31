@@ -51,11 +51,11 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
               {
                 content: {
                   role: 'model',
-                  parts: [{ text: 'Rahul Sharma has 1 active subscription: Pro Monthly Tier (sub_rahul_pro) at 4999 INR per month, valid until November 15, 2026.' }]
+                  parts: [{ text: 'Rahul Sharma has 1 active subscription: Pro Monthly Tier (sub_rahul_pro) at 4999.00 INR per month, valid until November 15, 2026.' }]
                 }
               }
             ],
-            text: 'Rahul Sharma has 1 active subscription: Pro Monthly Tier (sub_rahul_pro) at 4999 INR per month, valid until November 15, 2026.'
+            text: 'Rahul Sharma has 1 active subscription: Pro Monthly Tier (sub_rahul_pro) at 4999.00 INR per month, valid until November 15, 2026.'
           })
       }
     };
@@ -70,7 +70,7 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.reply).toContain('Pro Monthly Tier');
-    expect(res.body.data.reply).toContain('4999 INR');
+    expect(res.body.data.reply).toContain('4999.00 INR');
     expect(res.body.data.toolsUsed).toContain('get_customer_subscriptions');
     expect(res.body.data.provider).toBe('gemini');
     expect(res.body.data.answer).toBe(res.body.data.reply);
@@ -105,11 +105,11 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
               {
                 content: {
                   role: 'model',
-                  parts: [{ text: 'According to authoritative backend records, Rahul Sharma has been billed a total of 9998 INR and has paid 4999 INR. The remaining outstanding balance is 4999 INR.' }]
+                  parts: [{ text: 'According to authoritative backend records, Rahul Sharma has been invoiced a total of 45000.00 INR, paid 35000.00 INR, and has an outstanding balance of 10000.00 INR.' }]
                 }
               }
             ],
-            text: 'According to authoritative backend records, Rahul Sharma has been billed a total of 9998 INR and has paid 4999 INR. The remaining outstanding balance is 4999 INR.'
+            text: 'According to authoritative backend records, Rahul Sharma has been invoiced a total of 45000.00 INR, paid 35000.00 INR, and has an outstanding balance of 10000.00 INR.'
           })
       }
     };
@@ -122,8 +122,9 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
       .send({ prompt: 'How much has Rahul been billed and paid?' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.reply).toContain('9998 INR');
-    expect(res.body.data.reply).toContain('4999 INR');
+    expect(res.body.data.reply).toContain('45000.00 INR');
+    expect(res.body.data.reply).toContain('35000.00 INR');
+    expect(res.body.data.reply).toContain('10000.00 INR');
     expect(res.body.data.toolsUsed).toContain('get_customer_billing_summary');
 
     clientSpy.mockRestore();
@@ -156,11 +157,11 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
               {
                 content: {
                   role: 'model',
-                  parts: [{ text: 'Rahul Sharma has 1 unpaid invoice: INV-2026-0102 for 4999 INR, due on October 15, 2026.' }]
+                  parts: [{ text: 'Rahul Sharma has 1 unpaid invoice: INV-2026-0102 for 10000.00 INR, due on October 15, 2026.' }]
                 }
               }
             ],
-            text: 'Rahul Sharma has 1 unpaid invoice: INV-2026-0102 for 4999 INR, due on October 15, 2026.'
+            text: 'Rahul Sharma has 1 unpaid invoice: INV-2026-0102 for 10000.00 INR, due on October 15, 2026.'
           })
       }
     };
@@ -174,7 +175,7 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
 
     expect(res.status).toBe(200);
     expect(res.body.data.reply).toContain('INV-2026-0102');
-    expect(res.body.data.reply).toContain('4999 INR');
+    expect(res.body.data.reply).toContain('10000.00 INR');
 
     clientSpy.mockRestore();
   });
@@ -315,10 +316,10 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
       // Verify that Hugging Face receives the verified context already collected from the mock backend
       expect(params.verifiedContext.length).toBeGreaterThan(0);
       expect(params.verifiedContext[0].tool).toBe('get_customer_billing_summary');
-      expect(params.verifiedContext[0].result.totalOutstandingInCents).toBe(4999);
+      expect(params.verifiedContext[0].result.summary.totalOutstanding).toBe('10000.00');
 
       return {
-        reply: 'Fallback Response: According to verified backend records, Rahul Sharma has an outstanding balance of 4999 INR.',
+        reply: 'Fallback Response: According to verified backend records, Rahul Sharma has an outstanding balance of 10000.00 INR.',
         model: 'meta-llama/Llama-3.1-8B-Instruct',
         provider: 'huggingface'
       };
@@ -334,7 +335,7 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
 
     expect(res.status).toBe(200);
     expect(res.body.data.provider).toBe('huggingface');
-    expect(res.body.data.reply).toContain('4999 INR');
+    expect(res.body.data.reply).toContain('10000.00 INR');
     expect(hfSpy).toHaveBeenCalled();
 
     clientSpy.mockRestore();

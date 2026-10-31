@@ -35,8 +35,8 @@ export class HuggingFaceFallbackClient {
     const defaultSystem =
       'You are SubPilot, an enterprise billing AI assistant for Brightloop Software Subscription Management System (SMS). ' +
       'Answer user billing questions accurately based ONLY on the verified business records provided in the context. ' +
-      'Format monetary amounts accurately in dollars and cents ($X.XX USD) based on backend cents values. ' +
-      'Do not fabricate or hallucinate financial transactions, invoice numbers, or customer names.';
+      'Preserve exact decimal string monetary figures (e.g. "45000.00", "10000.00") and currency codes (e.g. INR) verbatim. ' +
+      'Never divide amounts by 100. Never convert to floats. Do not fabricate or hallucinate financial transactions, invoice numbers, or customer names.';
 
     const contextSummary = params.verifiedContext.length > 0
       ? params.verifiedContext

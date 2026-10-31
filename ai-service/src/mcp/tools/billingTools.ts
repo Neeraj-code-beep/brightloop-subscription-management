@@ -16,17 +16,25 @@ export interface McpToolDefinition {
 export const billingTools: McpToolDefinition[] = [
   {
     name: 'search_customer',
-    description: 'Searches for customers by company name, contact name, or email address. Returns customer identifiers and status.',
+    description: 'Searches for customers by company name, contact name, or email address. Supports offset and cursor pagination.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Search string (e.g. Acme, billing@acme.com, John Doe)'
+          description: 'Search string (e.g. Rahul Sharma, Acme, rahul@sharma.in)'
+        },
+        page: {
+          type: 'number',
+          description: '1-based page index for offset pagination'
         },
         limit: {
           type: 'number',
-          description: 'Maximum number of customer records to return (default 10)'
+          description: 'Maximum number of customer records per page (default 10)'
+        },
+        cursor: {
+          type: 'string',
+          description: 'Record ID cursor for cursor-based pagination'
         }
       },
       required: ['query']
@@ -40,7 +48,7 @@ export const billingTools: McpToolDefinition[] = [
       properties: {
         customerId: {
           type: 'string',
-          description: 'The unique customer identifier (e.g., cst_12345)'
+          description: 'The unique customer identifier (e.g., cst_rahul_01)'
         }
       },
       required: ['customerId']
@@ -48,7 +56,7 @@ export const billingTools: McpToolDefinition[] = [
   },
   {
     name: 'get_customer_subscriptions',
-    description: 'Retrieves active, trialing, paused, or canceled subscription records for a given customer.',
+    description: 'Retrieves active, trialing, paused, or canceled subscription records for a given customer via customer-scoped endpoint.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -60,6 +68,18 @@ export const billingTools: McpToolDefinition[] = [
           type: 'string',
           enum: ['ACTIVE', 'TRIALING', 'PAST_DUE', 'PAUSED', 'CANCELED', 'EXPIRED'],
           description: 'Optional status filter'
+        },
+        page: {
+          type: 'number',
+          description: 'Page number for offset pagination'
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of subscriptions to return'
+        },
+        cursor: {
+          type: 'string',
+          description: 'Cursor token for pagination'
         }
       },
       required: ['customerId']
@@ -67,7 +87,7 @@ export const billingTools: McpToolDefinition[] = [
   },
   {
     name: 'get_customer_invoice_history',
-    description: 'Fetches historical and pending invoices for a specific customer, including amounts, statuses, and due dates.',
+    description: 'Fetches historical and pending invoices for a specific customer with exact decimal string amounts, statuses, and due dates.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -80,9 +100,17 @@ export const billingTools: McpToolDefinition[] = [
           enum: ['DRAFT', 'OPEN', 'PAID', 'UNCOLLECTIBLE', 'VOID'],
           description: 'Optional invoice status filter'
         },
+        page: {
+          type: 'number',
+          description: 'Page number for offset pagination'
+        },
         limit: {
           type: 'number',
           description: 'Maximum number of invoices to return'
+        },
+        cursor: {
+          type: 'string',
+          description: 'Cursor token for pagination'
         }
       },
       required: ['customerId']
@@ -90,13 +118,13 @@ export const billingTools: McpToolDefinition[] = [
   },
   {
     name: 'get_invoice_details',
-    description: 'Fetches comprehensive details for a single invoice, including line item breakdown, applied taxes, discounts, amount paid, and outstanding balance.',
+    description: 'Fetches comprehensive details for a single invoice, including line item breakdown, applied taxes, discounts, amount paid, and outstanding balance as decimal strings.',
     inputSchema: {
       type: 'object',
       properties: {
         invoiceId: {
           type: 'string',
-          description: 'The unique invoice ID or invoice number (e.g. INV-2026-0001)'
+          description: 'The unique invoice ID or invoice number (e.g. INV-2026-0101)'
         }
       },
       required: ['invoiceId']
@@ -112,9 +140,17 @@ export const billingTools: McpToolDefinition[] = [
           type: 'string',
           description: 'The unique customer identifier'
         },
+        page: {
+          type: 'number',
+          description: 'Page number for offset pagination'
+        },
         limit: {
           type: 'number',
           description: 'Maximum number of payment records to retrieve'
+        },
+        cursor: {
+          type: 'string',
+          description: 'Cursor token for pagination'
         }
       },
       required: ['customerId']
@@ -122,7 +158,7 @@ export const billingTools: McpToolDefinition[] = [
   },
   {
     name: 'get_customer_billing_summary',
-    description: 'Calculates an aggregated high-level billing summary for a customer, including active subscription counts, total outstanding dues, and open invoice counts.',
+    description: 'Fetches the authoritative backend-calculated billing summary for a customer (totalSubscriptions, activeSubscriptions, totalInvoiced, totalPaid, totalOutstanding, totalOverdue) with exact decimal strings and currency.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -136,7 +172,7 @@ export const billingTools: McpToolDefinition[] = [
   },
   {
     name: 'get_revenue_summary',
-    description: 'Retrieves executive platform revenue metrics, including Monthly Recurring Revenue (MRR), Annual Recurring Revenue (ARR), and total active subscriptions.',
+    description: 'Retrieves authoritative platform revenue metrics (MRR, ARR, active subscriptions, total outstanding) with exact backend decimal strings and currency.',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -144,7 +180,7 @@ export const billingTools: McpToolDefinition[] = [
   },
   {
     name: 'get_overdue_invoices',
-    description: 'Retrieves company-wide overdue invoice aging analysis (0-30, 31-60, 61-90, 90+ days past due) and lists delinquent accounts.',
+    description: 'Retrieves authoritative company-wide overdue invoice aging analysis (0-30, 31-60, 61-90, 90+ days past due) with exact backend decimal strings.',
     inputSchema: {
       type: 'object',
       properties: {}

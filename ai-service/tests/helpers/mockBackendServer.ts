@@ -24,7 +24,9 @@ export const FIXTURE_RAHUL_CUSTOMER = {
   currency: 'INR',
   status: 'ACTIVE' as const,
   billingAddress: {
+    street: '12 Brigade Road',
     city: 'Bengaluru',
+    state: 'Karnataka',
     country: 'IN'
   },
   createdAt: '2026-01-15T00:00:00.000Z',
@@ -49,6 +51,7 @@ export const FIXTURE_RAHUL_SUBSCRIPTIONS = [
     planId: 'plan_pro_monthly',
     status: 'ACTIVE' as const,
     currency: 'INR',
+    price: '4999.00', // Decimal string
     currentPeriodStart: '2026-10-15T00:00:00.000Z',
     currentPeriodEnd: '2026-11-15T00:00:00.000Z',
     items: [
@@ -56,13 +59,23 @@ export const FIXTURE_RAHUL_SUBSCRIPTIONS = [
         id: 'item_01',
         planId: 'plan_pro_monthly',
         quantity: 1,
-        unitPriceInCents: 4999,
+        unitPrice: '4999.00',
         plan: {
           name: 'Pro Monthly Tier',
           billingInterval: 'MONTHLY'
         }
       }
     ]
+  },
+  {
+    id: 'sub_rahul_storage',
+    customerId: 'cst_rahul_01',
+    planId: 'plan_addon_storage',
+    status: 'ACTIVE' as const,
+    currency: 'INR',
+    price: '500.00',
+    currentPeriodStart: '2026-10-15T00:00:00.000Z',
+    currentPeriodEnd: '2026-11-15T00:00:00.000Z'
   }
 ];
 
@@ -72,12 +85,10 @@ export const FIXTURE_RAHUL_INVOICES = [
     invoiceNumber: 'INV-2026-0101',
     customerId: 'cst_rahul_01',
     status: 'PAID' as const,
-    subtotalInCents: 4999,
-    taxInCents: 0,
-    discountInCents: 0,
-    totalInCents: 4999,
-    amountPaidInCents: 4999,
-    amountDueInCents: 0,
+    subtotal: '35000.00',
+    total: '35000.00',
+    amountPaid: '35000.00',
+    amountDue: '0.00',
     currency: 'INR',
     dueDate: '2026-09-15T00:00:00.000Z',
     paidAt: '2026-09-14T10:00:00.000Z'
@@ -87,12 +98,10 @@ export const FIXTURE_RAHUL_INVOICES = [
     invoiceNumber: 'INV-2026-0102',
     customerId: 'cst_rahul_01',
     status: 'OPEN' as const,
-    subtotalInCents: 4999,
-    taxInCents: 0,
-    discountInCents: 0,
-    totalInCents: 4999,
-    amountPaidInCents: 0,
-    amountDueInCents: 4999,
+    subtotal: '10000.00',
+    total: '10000.00',
+    amountPaid: '0.00',
+    amountDue: '10000.00',
     currency: 'INR',
     dueDate: '2026-10-15T00:00:00.000Z' // Overdue
   }
@@ -102,9 +111,9 @@ export const FIXTURE_RAHUL_PAYMENTS = [
   {
     id: 'pay_rahul_001',
     invoiceId: 'inv_rahul_101',
-    paymentMethod: 'CREDIT_CARD',
-    transactionReference: 'txn_razorpay_99482',
-    amountInCents: 4999,
+    paymentMethod: 'BANK_TRANSFER',
+    transactionReference: 'IMPS_8849204',
+    amount: '35000.00',
     currency: 'INR',
     status: 'SUCCEEDED' as const,
     paidAt: '2026-09-14T10:00:00.000Z',
@@ -112,26 +121,32 @@ export const FIXTURE_RAHUL_PAYMENTS = [
   }
 ];
 
-export const FIXTURE_RAHUL_SUMMARY = {
+// Neeraj's Authoritative Billing Summary contract using decimal strings
+export const FIXTURE_AUTHORITATIVE_BILLING_SUMMARY = {
   customerId: 'cst_rahul_01',
-  companyName: 'Sharma Tech Enterprises',
   currency: 'INR',
-  totalBilledInCents: 9998,
-  totalPaidInCents: 4999,
-  totalOutstandingInCents: 4999,
-  activeSubscriptionsCount: 1,
-  openInvoicesCount: 1,
-  overdueInvoicesCount: 1
+  summary: {
+    totalSubscriptions: 3,
+    activeSubscriptions: 2,
+    totalInvoices: 12,
+    paidInvoices: 9,
+    unpaidInvoices: 2,
+    overdueInvoices: 1,
+    totalInvoiced: '45000.00',
+    totalPaid: '35000.00',
+    totalOutstanding: '10000.00',
+    totalOverdue: '4000.00'
+  }
 };
 
 export const FIXTURE_ANALYTICS_OVERDUE = {
   agingBuckets: {
-    days0To30InCents: 4999,
-    days31To60InCents: 15000,
-    days61To90InCents: 0,
-    days90PlusInCents: 0
+    days0To30: '6000.00',
+    days31To60: '4000.00',
+    days61To90: '0.00',
+    days90Plus: '0.00'
   },
-  totalOverdueInCents: 19999,
+  totalOverdue: '10000.00',
   overdueInvoicesCount: 2,
   currency: 'INR'
 };
@@ -164,9 +179,11 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
         const url = new URL(req.url || '/', 'http://127.0.0.1');
         const pathname = url.pathname;
         const search = url.searchParams.get('search') || '';
-        const customerIdParam = url.searchParams.get('customerId') || '';
+        const cursor = url.searchParams.get('cursor');
+        const page = parseInt(url.searchParams.get('page') || '1', 10);
+        const limit = parseInt(url.searchParams.get('limit') || '20', 10);
 
-        // Authentication Header Validation
+        // Security: Header Verification
         const authHeader = req.headers['authorization'];
         if (authHeader === 'Bearer invalid_or_expired_token') {
           res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -190,7 +207,7 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
           );
         }
 
-        // Routing
+        // 1. GET /api/v1/customers (List & search)
         if (pathname === '/api/v1/customers') {
           if (search.toLowerCase().includes('rahul sharma')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -199,7 +216,15 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
                 success: true,
                 message: 'Customers retrieved successfully',
                 data: {
-                  items: [FIXTURE_RAHUL_CUSTOMER]
+                  items: [FIXTURE_RAHUL_CUSTOMER],
+                  pagination: {
+                    page: 1,
+                    limit,
+                    totalItems: 1,
+                    totalPages: 1,
+                    hasNextPage: false,
+                    hasPrevPage: false
+                  }
                 }
               })
             );
@@ -209,9 +234,56 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
             return res.end(
               JSON.stringify({
                 success: true,
-                message: 'Customers retrieved successfully',
+                message: 'Multiple customers retrieved',
                 data: {
-                  items: [FIXTURE_RAHUL_CUSTOMER, FIXTURE_RAHUL_VERMA]
+                  items: [FIXTURE_RAHUL_CUSTOMER, FIXTURE_RAHUL_VERMA],
+                  pagination: {
+                    page: 1,
+                    limit,
+                    totalItems: 2,
+                    totalPages: 1,
+                    hasNextPage: false,
+                    hasPrevPage: false
+                  }
+                }
+              })
+            );
+          } else if (cursor === 'cursor_page_1') {
+            // Cursor pagination continuation page
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(
+              JSON.stringify({
+                success: true,
+                message: 'Customers page 2 retrieved',
+                data: {
+                  items: [FIXTURE_RAHUL_VERMA],
+                  pagination: {
+                    limit,
+                    hasNextPage: false,
+                    hasPrevPage: true,
+                    nextCursor: undefined,
+                    previousCursor: 'cursor_page_1'
+                  }
+                }
+              })
+            );
+          } else if (search.toLowerCase().includes('all') || search === '') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(
+              JSON.stringify({
+                success: true,
+                message: 'Customers retrieved',
+                data: {
+                  items: [FIXTURE_RAHUL_CUSTOMER, FIXTURE_RAHUL_VERMA],
+                  pagination: {
+                    page,
+                    limit,
+                    totalItems: 2,
+                    totalPages: 1,
+                    hasNextPage: false,
+                    hasPrevPage: false,
+                    nextCursor: 'cursor_page_1'
+                  }
                 }
               })
             );
@@ -223,13 +295,15 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
                 success: true,
                 message: 'No customers found',
                 data: {
-                  items: []
+                  items: [],
+                  pagination: { page: 1, limit, totalItems: 0, totalPages: 0 }
                 }
               })
             );
           }
         }
 
+        // 2. GET /api/v1/customers/:id
         if (pathname === '/api/v1/customers/cst_rahul_01') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(
@@ -240,40 +314,89 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
           );
         }
 
-        if (pathname === '/api/v1/customers/cst_rahul_01/summary') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(
-            JSON.stringify({
-              success: true,
-              data: FIXTURE_RAHUL_SUMMARY
-            })
-          );
-        }
-
-        if (pathname === '/api/v1/subscriptions' && customerIdParam === 'cst_rahul_01') {
+        // 3. GET /api/v1/customers/:id/subscriptions (Confirmed customer-scoped endpoint)
+        if (pathname === '/api/v1/customers/cst_rahul_01/subscriptions') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(
             JSON.stringify({
               success: true,
               data: {
-                items: FIXTURE_RAHUL_SUBSCRIPTIONS
+                items: FIXTURE_RAHUL_SUBSCRIPTIONS,
+                pagination: {
+                  page: 1,
+                  limit,
+                  totalItems: 2,
+                  totalPages: 1,
+                  hasNextPage: false,
+                  hasPrevPage: false
+                }
               }
             })
           );
         }
 
-        if (pathname === '/api/v1/invoices') {
+        // 4. GET /api/v1/customers/:id/invoices (Confirmed customer-scoped endpoint)
+        if (pathname === '/api/v1/customers/cst_rahul_01/invoices') {
+          const status = url.searchParams.get('status');
+          let items = FIXTURE_RAHUL_INVOICES;
+          if (status) {
+            items = FIXTURE_RAHUL_INVOICES.filter((i) => i.status === status);
+          }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(
             JSON.stringify({
               success: true,
               data: {
-                items: FIXTURE_RAHUL_INVOICES
+                items,
+                pagination: {
+                  page: 1,
+                  limit,
+                  totalItems: items.length,
+                  totalPages: 1,
+                  hasNextPage: false,
+                  hasPrevPage: false
+                }
               }
             })
           );
         }
 
+        // 5. GET /api/v1/customers/:id/payments (Confirmed customer-scoped endpoint)
+        if (pathname === '/api/v1/customers/cst_rahul_01/payments') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(
+            JSON.stringify({
+              success: true,
+              data: {
+                items: FIXTURE_RAHUL_PAYMENTS,
+                pagination: {
+                  page: 1,
+                  limit,
+                  totalItems: 1,
+                  totalPages: 1,
+                  hasNextPage: false,
+                  hasPrevPage: false
+                }
+              }
+            })
+          );
+        }
+
+        // 6. GET /api/v1/customers/:id/billing-summary (Authoritative summary)
+        if (
+          pathname === '/api/v1/customers/cst_rahul_01/billing-summary' ||
+          pathname === '/api/v1/customers/cst_rahul_01/summary'
+        ) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(
+            JSON.stringify({
+              success: true,
+              data: FIXTURE_AUTHORITATIVE_BILLING_SUMMARY
+            })
+          );
+        }
+
+        // 7. GET /api/v1/invoices/:id
         if (pathname === '/api/v1/invoices/inv_rahul_102') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(
@@ -284,18 +407,7 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
           );
         }
 
-        if (pathname === '/api/v1/payments' && customerIdParam === 'cst_rahul_01') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          return res.end(
-            JSON.stringify({
-              success: true,
-              data: {
-                items: FIXTURE_RAHUL_PAYMENTS
-              }
-            })
-          );
-        }
-
+        // 8. Analytics endpoints
         if (pathname === '/api/v1/analytics/overdue') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(
@@ -306,17 +418,17 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
           );
         }
 
-        if (pathname === '/api/v1/analytics/dashboard') {
+        if (pathname === '/api/v1/analytics/summary' || pathname === '/api/v1/analytics/dashboard') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(
             JSON.stringify({
               success: true,
               data: {
-                mrrInCents: 499900,
-                arrInCents: 5998800,
-                activeSubscriptions: 100,
+                mrr: '450000.00',
+                arr: '5400000.00',
+                activeSubscriptions: 120,
                 outstandingInvoicesCount: 15,
-                totalOutstandingInCents: 74985,
+                totalOutstanding: '150000.00',
                 currency: 'INR'
               }
             })

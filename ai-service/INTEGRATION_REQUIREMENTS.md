@@ -37,23 +37,33 @@ app.use(
 
 The Model Context Protocol (MCP) billing tools call backend REST endpoints on behalf of the authenticated user. All requests include the caller's `Authorization: Bearer <token>` header. The backend must enforce standard RBAC (`ADMIN`, `STAFF`, `CUSTOMER`).
 
+### Confirmed Customer-Scoped Endpoints:
 | MCP Tool | Backend Endpoint | Query / Path Params | Expected Output Envelope |
 |---|---|---|---|
-| `search_customer` | `GET /api/v1/customers` | `?search=<query>&page=1&limit=10` | `{ "items": [{ "id", "name", "email", "status" }] }` |
+| `search_customer` | `GET /api/v1/customers` | `?search=<query>&page=1&limit=10&cursor=<id>` | `{ "items": [{ "id", "companyName", "contactName", "email", "status" }], "pagination": { "page", "limit", "nextCursor" } }` |
 | `get_customer_details` | `GET /api/v1/customers/:id` | Path `:id` (e.g. `cst_123`) | Customer object with address, billing currency, timestamps |
-| `get_customer_subscriptions` | `GET /api/v1/subscriptions` | `?customerId=<id>&status=<status>` | `{ "items": [{ "id", "planId", "status", "currentPeriodEnd" }] }` |
-| `get_customer_invoice_history` | `GET /api/v1/invoices` | `?customerId=<id>&page=1&limit=20` | `{ "items": [{ "id", "invoiceNumber", "totalInCents", "status", "dueDate" }] }` |
-| `get_invoice_details` | `GET /api/v1/invoices/:id` | Path `:id` (UUID or invoice number) | Invoice object with line items, tax, discount, total, amountPaid |
-| `get_customer_payment_history` | `GET /api/v1/payments` | `?customerId=<id>` | `{ "items": [{ "id", "amountInCents", "status", "paidAt" }] }` |
-| `get_customer_billing_summary` | `GET /api/v1/customers/:id/summary` or `/customers/:id` | Path `:id` | Dedicated backend-calculated summary stats (outstanding, active plans) |
-| `get_revenue_summary` | `GET /api/v1/analytics/dashboard` & `GET /api/v1/analytics/revenue` | None | `{ "mrrInCents", "arrInCents", "activeSubscriptions", "currency" }` |
-| `get_overdue_invoices` | `GET /api/v1/analytics/overdue` | None | Authoritative aging buckets (0-30, 31-60, 61-90, 90+) and overdue invoice list |
+| `get_customer_subscriptions` | `GET /api/v1/customers/:id/subscriptions` | `?status=<status>&page=1&limit=20&cursor=<id>` | `{ "items": [{ "id", "planId", "status", "price": "4999.00", "currency": "INR", "currentPeriodEnd" }] }` |
+| `get_customer_invoice_history` | `GET /api/v1/customers/:id/invoices` | `?status=<status>&page=1&limit=20&cursor=<id>` | `{ "items": [{ "id", "invoiceNumber", "total": "35000.00", "amountPaid": "35000.00", "amountDue": "0.00", "status", "dueDate" }] }` |
+| `get_customer_payment_history` | `GET /api/v1/customers/:id/payments` | `?page=1&limit=20&cursor=<id>` | `{ "items": [{ "id", "amount": "35000.00", "currency": "INR", "status": "SUCCEEDED", "paidAt" }] }` |
+| `get_customer_billing_summary` | `GET /api/v1/customers/:id/billing-summary` | Path `:id` | Dedicated backend-calculated summary stats: `{ "customerId", "currency": "INR", "summary": { "totalSubscriptions", "activeSubscriptions", "totalInvoices", "paidInvoices", "unpaidInvoices", "overdueInvoices", "totalInvoiced": "45000.00", "totalPaid": "35000.00", "totalOutstanding": "10000.00", "totalOverdue": "4000.00" } }` |
+
+### Pending Verification Endpoints (Root Fallback Routes):
+| MCP Tool | Pending Endpoint | Note |
+|---|---|---|
+| `get_invoice_details` | `GET /api/v1/invoices/:id` | Pending backend verification |
+| Fallback subscriptions | `GET /api/v1/subscriptions` | Fallback if root list queried |
+| Fallback invoices | `GET /api/v1/invoices` | Fallback if root list queried |
+| Fallback payments | `GET /api/v1/payments` | Fallback if root list queried |
+| `get_revenue_summary` | `GET /api/v1/analytics/summary` or `/dashboard` | Returns `{ "mrr": "450000.00", "arr": "5400000.00", "currency": "INR" }` |
+| `get_overdue_invoices` | `GET /api/v1/analytics/overdue` | Authoritative aging buckets (`days0To30`, `days31To60`, etc.) and `totalOverdue` decimal strings |
 
 ### Architectural Security & Financial Integrity:
 - **No Direct Database Access**: The AI service strictly communicates through authenticated REST endpoints and does NOT connect directly to Neeraj's core PostgreSQL database.
+- **Authoritative Decimal Strings (No Cents / No Float Calculations)**: Financial amounts are strictly represented as exact decimal strings (e.g. `"45000.00"`, `"35000.00"`, `"10000.00"`), never integer cents or floating-point numbers.
+- **Currency Preservation**: Always preserves backend currency (default `INR`) and does not assume USD.
 - **Backend-Calculated Values**: Authoritative metrics (MRR, ARR, overdue aging, customer balance) must be calculated on the backend. The AI service will never independently calculate or sum up balances.
+- **Pagination**: Supports both offset pagination (`?page=1&limit=20`) and cursor pagination (`?limit=20&cursor=<id>`).
 - **Preserve RBAC**: If a `CUSTOMER` attempts to access another customer's data or revenue analytics, the backend must return `403 Forbidden`. The AI Assistant will halt and preserve this permission boundary.
-- **Currency Preservation**: Returns exact currency codes and units from the backend record without assuming USD.
 
 ---
 
@@ -89,8 +99,8 @@ The Frontend connects to the AI Service via `frontend/src/services/apiClient.js`
     "success": true,
     "message": "Query processed successfully",
     "data": {
-      "reply": "According to backend records, customer cst_9f8231a4 has an outstanding balance of 12000 cents (USD).",
-      "answer": "According to backend records, customer cst_9f8231a4 has an outstanding balance of 12000 cents (USD).",
+      "reply": "According to backend records, customer cst_9f8231a4 has an outstanding balance of 10000.00 INR.",
+      "answer": "According to backend records, customer cst_9f8231a4 has an outstanding balance of 10000.00 INR.",
       "toolsUsed": ["search_customer", "get_customer_billing_summary"],
       "provider": "gemini",
       "conversationId": "conv_abc123"
