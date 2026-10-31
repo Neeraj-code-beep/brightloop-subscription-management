@@ -396,43 +396,73 @@ export class BackendApiClient {
     }
   }
 
+  /**
+   * Helper to verify if an endpoint response contains authoritative pre-calculated financial metrics.
+   * Prevents accepting unverified or empty summaries.
+   */
+  private hasAuthoritativeMetrics(data: any): boolean {
+    if (!data || typeof data !== 'object') return false;
+    const summary = data.summary || data;
+    const hasFinancialStrings =
+      typeof summary.totalOutstanding === 'string' ||
+      typeof summary.totalInvoiced === 'string' ||
+      typeof summary.totalPaid === 'string' ||
+      typeof summary.totalOverdue === 'string';
+    const hasCounts =
+      typeof summary.activeSubscriptions === 'number' ||
+      typeof summary.totalSubscriptions === 'number' ||
+      typeof summary.activeSubscriptionsCount === 'number';
+
+    return hasFinancialStrings || hasCounts;
+  }
+
   // 7. Get authoritative customer billing summary directly from backend
   async getCustomerBillingSummary(customerId: string): Promise<any> {
     // 1. Primary path: /customers/:id/billing-summary
     try {
       const summary = await this.request<any>(BACKEND_ENDPOINTS.customers.billingSummary(customerId));
-      return summary;
+      if (this.hasAuthoritativeMetrics(summary)) {
+        return summary;
+      }
     } catch (err: any) {
       if (err instanceof BackendHttpError && err.isAuthError) throw err;
-      // 2. Secondary path: /customers/:id/summary
-      try {
-        const legacySummary = await this.request<any>(BACKEND_ENDPOINTS.customers.legacySummary(customerId));
-        return legacySummary;
-      } catch (legacyErr: any) {
-        if (legacyErr instanceof BackendHttpError && legacyErr.isAuthError) throw legacyErr;
-        // 3. Fallback: check profile summary stats
-        try {
-          const customer = await this.getCustomerDetails(customerId);
-          if (customer.billingSummary || customer.summaryStats) {
-            return {
-              customerId: customer.id,
-              companyName: customer.companyName,
-              currency: customer.currency || 'INR',
-              summary: customer.billingSummary || customer.summaryStats
-            };
-          }
-          return {
-            customerId: customer.id,
-            companyName: customer.companyName,
-            currency: customer.currency || 'INR',
-            status: 'unavailable',
-            message: 'Authoritative customer billing summary is not calculated or available from backend for this account.'
-          };
-        } catch {
-          throw err;
-        }
-      }
     }
+
+    // 2. Secondary path: legacy /customers/:id/summary
+    // Only permit fallback when the alternative endpoint is confirmed to return equivalent backend-calculated metrics
+    try {
+      const legacySummary = await this.request<any>(BACKEND_ENDPOINTS.customers.legacySummary(customerId));
+      if (this.hasAuthoritativeMetrics(legacySummary)) {
+        return legacySummary;
+      }
+    } catch (legacyErr: any) {
+      if (legacyErr instanceof BackendHttpError && legacyErr.isAuthError) throw legacyErr;
+    }
+
+    // 3. Fallback: check profile summary stats
+    // Only permit when customer profile explicitly contains pre-calculated summary stats
+    try {
+      const customer = await this.getCustomerDetails(customerId);
+      const profileSummary = customer.billingSummary || customer.summaryStats;
+      if (profileSummary && this.hasAuthoritativeMetrics(profileSummary)) {
+        return {
+          customerId: customer.id,
+          companyName: customer.companyName,
+          currency: customer.currency || 'INR',
+          summary: profileSummary
+        };
+      }
+    } catch (profileErr: any) {
+      if (profileErr instanceof BackendHttpError && profileErr.isAuthError) throw profileErr;
+    }
+
+    // 4. Strict Safety Guard: If no authoritative backend endpoint is available or none return
+    // verified pre-calculated metrics, NEVER reconstruct from raw invoices. Report as unavailable.
+    return {
+      customerId,
+      status: 'unavailable',
+      message: 'Authoritative customer billing summary is not calculated or available from backend for this account.'
+    };
   }
 
   // 8. Get revenue summary
