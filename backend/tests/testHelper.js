@@ -587,14 +587,14 @@ export function createMockPrisma() {
       findFirst: async ({ where }) => {
         let list = [...state.subscriptions];
         if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
-        if (where.status) list = list.filter(s => s.status === where.status);
+        if (where.status) { if (typeof where.status === 'string') list = list.filter(s => s.status === where.status); else if (where.status.in) list = list.filter(s => where.status.in.includes(s.status)); else if (where.status.notIn) list = list.filter(s => !where.status.notIn.includes(s.status)); }
         if (where.quotationId) list = list.filter(s => s.quotationId === where.quotationId);
         return list[0] ? { ...list[0] } : null;
       },
       findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
         let list = [...state.subscriptions];
         if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
-        if (where.status) list = list.filter(s => s.status === where.status);
+        if (where.status) { if (typeof where.status === 'string') list = list.filter(s => s.status === where.status); else if (where.status.in) list = list.filter(s => where.status.in.includes(s.status)); else if (where.status.notIn) list = list.filter(s => !where.status.notIn.includes(s.status)); }
         if (where.planId) list = list.filter(s => s.planId === where.planId);
         if (where.nextBillingDate?.lte) {
           const lte = new Date(where.nextBillingDate.lte).getTime();
@@ -641,7 +641,7 @@ export function createMockPrisma() {
       count: async ({ where = {} } = {}) => {
         let list = [...state.subscriptions];
         if (where.customerId) list = list.filter(s => s.customerId === where.customerId);
-        if (where.status) list = list.filter(s => s.status === where.status);
+        if (where.status) { if (typeof where.status === 'string') list = list.filter(s => s.status === where.status); else if (where.status.in) list = list.filter(s => where.status.in.includes(s.status)); else if (where.status.notIn) list = list.filter(s => !where.status.notIn.includes(s.status)); }
         if (where.planId) list = list.filter(s => s.planId === where.planId);
         return list.length;
       },
@@ -986,7 +986,7 @@ export function createMockPrisma() {
         }
         if (where.customerId) list = list.filter(i => i.customerId === where.customerId);
         if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
-        if (where.status) list = list.filter(i => i.status === where.status);
+        if (where.status) { if (typeof where.status === 'string') list = list.filter(i => i.status === where.status); else if (where.status.in) list = list.filter(i => where.status.in.includes(i.status)); else if (where.status.notIn) list = list.filter(i => !where.status.notIn.includes(i.status)); }
         if (where.periodStart) {
           const psTime = new Date(where.periodStart).getTime();
           list = list.filter(i => i.periodStart && new Date(i.periodStart).getTime() === psTime);
@@ -1017,11 +1017,13 @@ export function createMockPrisma() {
         if (where.customerId) list = list.filter(i => i.customerId === where.customerId);
         if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
         if (where.status) {
-          if (Array.isArray(where.status.in)) {
-            list = list.filter(i => where.status.in.includes(i.status));
-          } else {
-            list = list.filter(i => i.status === where.status);
-          }
+          if (typeof where.status === 'string') list = list.filter(i => i.status === where.status);
+          else if (where.status.in) list = list.filter(i => where.status.in.includes(i.status));
+          else if (where.status.notIn) list = list.filter(i => !where.status.notIn.includes(i.status));
+        }
+        if (where.createdAt) {
+          if (where.createdAt.gte) list = list.filter(i => new Date(i.createdAt) >= new Date(where.createdAt.gte));
+          if (where.createdAt.lte) list = list.filter(i => new Date(i.createdAt) <= new Date(where.createdAt.lte));
         }
         if (where.dueDate?.lt) {
           const lt = new Date(where.dueDate.lt).getTime();
@@ -1077,11 +1079,30 @@ export function createMockPrisma() {
           return projectSelect(res, select);
         });
       },
+            aggregate: async ({ where = {}, _sum = {} } = {}) => {
+        let list = [...state.invoices];
+        if (where.status) {
+          if (typeof where.status === 'string') list = list.filter(i => i.status === where.status);
+          else if (where.status.in) list = list.filter(i => where.status.in.includes(i.status));
+          else if (where.status.notIn) list = list.filter(i => !where.status.notIn.includes(i.status));
+        }
+        const sumResult = {};
+        for (const field of Object.keys(_sum)) {
+          let total = new Prisma.Decimal(0);
+          for (const item of list) {
+            if (item[field] !== undefined && item[field] !== null) {
+              total = total.plus(new Prisma.Decimal(item[field]));
+            }
+          }
+          sumResult[field] = total;
+        }
+        return { _sum: sumResult, _count: { _all: list.length } };
+      },
       count: async ({ where = {} } = {}) => {
         let list = [...state.invoices];
         if (where.customerId) list = list.filter(i => i.customerId === where.customerId);
         if (where.subscriptionId) list = list.filter(i => i.subscriptionId === where.subscriptionId);
-        if (where.status) list = list.filter(i => i.status === where.status);
+        if (where.status) { if (typeof where.status === 'string') list = list.filter(i => i.status === where.status); else if (where.status.in) list = list.filter(i => where.status.in.includes(i.status)); else if (where.status.notIn) list = list.filter(i => !where.status.notIn.includes(i.status)); }
         return list.length;
       },
       create: async ({ data, include, select }) => {
@@ -1207,9 +1228,20 @@ export function createMockPrisma() {
       },
       findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
         let list = [...state.payments];
-        if (where.customerId) list = list.filter(p => p.customerId === where.customerId);
+        if (where.customerId) {
+          if (typeof where.customerId === 'string') list = list.filter(p => p.customerId === where.customerId);
+          else if (where.customerId.not !== undefined) list = list.filter(p => p.customerId !== where.customerId.not);
+        }
         if (where.invoiceId) list = list.filter(p => p.invoiceId === where.invoiceId);
-        if (where.status) list = list.filter(p => p.status === where.status);
+        if (where.status) {
+          if (typeof where.status === 'string') list = list.filter(p => p.status === where.status);
+          else if (where.status.in) list = list.filter(p => where.status.in.includes(p.status));
+          else if (where.status.notIn) list = list.filter(p => !where.status.notIn.includes(p.status));
+        }
+        if (where.createdAt) {
+          if (where.createdAt.gte) list = list.filter(p => new Date(p.createdAt) >= new Date(where.createdAt.gte));
+          if (where.createdAt.lte) list = list.filter(p => new Date(p.createdAt) <= new Date(where.createdAt.lte));
+        }
         if (where.paymentMethod) list = list.filter(p => p.paymentMethod === where.paymentMethod);
         if (where.provider) list = list.filter(p => p.provider === where.provider);
         if (where.providerTransactionId) list = list.filter(p => p.providerTransactionId === where.providerTransactionId);
@@ -1259,6 +1291,25 @@ export function createMockPrisma() {
           }
           return projectSelect(res, select);
         });
+      },
+            aggregate: async ({ where = {}, _sum = {} } = {}) => {
+        let list = [...state.payments];
+        if (where.status) {
+          if (typeof where.status === 'string') list = list.filter(p => p.status === where.status);
+          else if (where.status.in) list = list.filter(p => where.status.in.includes(p.status));
+          else if (where.status.notIn) list = list.filter(p => !where.status.notIn.includes(p.status));
+        }
+        const sumResult = {};
+        for (const field of Object.keys(_sum)) {
+          let total = new Prisma.Decimal(0);
+          for (const item of list) {
+            if (item[field] !== undefined && item[field] !== null) {
+              total = total.plus(new Prisma.Decimal(item[field]));
+            }
+          }
+          sumResult[field] = total;
+        }
+        return { _sum: sumResult, _count: { _all: list.length } };
       },
       count: async ({ where = {} } = {}) => {
         let list = [...state.payments];

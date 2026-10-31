@@ -523,9 +523,28 @@ Endpoints returning collections support cursor or page-based pagination using th
   - Body: `{ "isActive": boolean }`
 
 ### 5.12 Analytics & Dashboard (`/api/v1/analytics`)
-- `GET    /api/v1/analytics/dashboard` - Executive metrics: MRR, ARR, active subscriptions, churn rate, outstanding dues.
-- `GET    /api/v1/analytics/revenue` - Historical revenue series by month/quarter.
-- `GET    /api/v1/analytics/overdue` - Overdue invoice Aging report (0-30, 31-60, 61-90, 90+ days).
+Access: `ADMIN` (full access), `STAFF` (operational access). `CUSTOMER` access is strictly forbidden (403 Forbidden). All monetary metrics are returned as decimal strings formatted to 2 decimal places.
+
+- `GET    /api/v1/analytics/summary` - Executive summary KPIs.
+  - Returns: `{ "totalCustomers": number, "activeCustomers": number, "totalProducts": number, "activeSubscriptions": number, "pendingSubscriptions": number, "cancelledSubscriptions": number, "totalQuotations": number, "acceptedQuotations": number, "totalInvoices": number, "paidInvoices": number, "unpaidInvoices": number, "overdueInvoices": number, "totalInvoicedAmount": string, "totalCollectedAmount": string, "totalOutstandingAmount": string, "totalRefundedAmount": string, "collectionRate": string, "generatedAt": string }`
+- `GET    /api/v1/analytics/dashboard` - High-level executive dashboard metrics (`mrr`, `arr`, `activeSubscriptions`, `totalCustomers`, `totalInvoiced`, `totalCollected`, `totalOutstanding`, `collectionRate`, `generatedAt`).
+- `GET    /api/v1/analytics/revenue` - Periodic collected vs invoiced revenue analysis with period-over-period growth.
+  - Query parameters: `interval` (`"daily"`|`"weekly"`|`"monthly"`|`"yearly"`, default: `"monthly"`), `startDate` (ISO string), `endDate` (ISO string).
+  - Returns: `{ "interval": string, "startDate": string, "endDate": string, "periods": Array<{ "period": string, "collectedRevenue": string, "invoicedRevenue": string, "refundAmount": string, "netRevenue": string, "paymentCount": number, "refundCount": number }>, "totalCollected": string, "totalInvoiced": string, "totalRefunded": string, "netRevenue": string, "previousPeriod": object, "growthPercentage": string }`
+- `GET    /api/v1/analytics/mrr` - Monthly Recurring Revenue (MRR) breakdown and normalized recurring calculations.
+  - Normalizes subscriptions across billing cycles (`MONTHLY`: 1, `YEARLY`/`ANNUAL`: /12, `QUARTERLY`: /3, `HALF_YEARLY`: /6, `WEEKLY`: *52/12, `DAILY`: *365/12). One-time fees, setup fees, and adjustments are excluded.
+  - Returns: `{ "currentMrr": string, "currentArr": string, "newMrr": string, "expansionMrr": string, "contractionMrr": string, "churnedMrr": string, "netMrrGrowth": string, "historicalTrends": Array<{ "period": string, "mrr": string, "activeSubscriptions": number }>, "limitations": string }`
+- `GET    /api/v1/analytics/arr` - Annual Run-Rate (ARR = $12 \times \text{MRR}$) metrics and trend analysis.
+  - Returns: `{ "currentArr": string, "currentMrr": string, "arrGrowth": string, "historicalTrends": Array<{ "period": string, "arr": string, "activeSubscriptions": number }>, "limitations": string }`
+- `GET    /api/v1/analytics/customers` - Customer growth, status breakdown, and top paying customers.
+  - Query parameters: `interval`, `startDate`, `endDate`.
+  - Returns: `{ "totalCustomers": number, "activeCustomers": number, "inactiveCustomers": number, "newCustomersOverTime": Array<{ "period": string, "count": number }>, "customerGrowthRate": string, "topCustomersByRevenue": Array<{ "id": string, "customerCode": string, "name": string, "email": string, "totalRevenue": string, "activeSubscriptions": number }>, "retentionIndicators": { "activePercentage": string, "churnedCount": number, "retentionRate": string } }`
+- `GET    /api/v1/analytics/subscriptions` - Subscription lifecycle distribution, plan popularity, and renewals.
+  - Returns: `{ "statusBreakdown": { "active": number, "pending": number, "paused": number, "cancelled": number, "expired": number, "total": number }, "newSubscriptionsOverTime": Array<{ "period": string, "count": number }>, "upcomingRenewals": Array<{ "id": string, "subscriptionNumber": string, "planName": string, "nextBillingDate": string, "amount": string }>, "cancellationTrends": { "totalCancelled": number, "cancellationReasons": Array<{ "reason": string, "count": number }> }, "distributionByPlan": Array<{ "planId": string, "planName": string, "count": number, "percentage": string }> }`
+- `GET    /api/v1/analytics/invoices` - Invoicing health, collection efficiency, and accounts receivable aging buckets.
+  - Returns: `{ "statusBreakdown": { "draft": number, "issued": number, "partiallyPaid": number, "paid": number, "overdue": number, "void": number, "total": number }, "totalOutstanding": string, "totalInvoiced": string, "averageInvoiceValue": string, "collectionEfficiency": string, "agingBuckets": { "current": string, "days1To30": string, "days31To60": string, "days61To90": string, "days90Plus": string } }`
+- `GET    /api/v1/analytics/payments` - Payment processing performance, success rates, and collection trends.
+  - Returns: `{ "totalPayments": number, "successfulPayments": number, "failedPayments": number, "successRate": string, "failureRate": string, "totalCollected": string, "totalRefunded": string, "netCollected": string, "collectionTrends": Array<{ "period": string, "collected": string, "count": number }>, "unmatchedPaymentsCount": number }`
 
 ### 5.13 AI Service Endpoints (`/api/v1/ai`)
 - `POST   /api/v1/ai/chat` - Natural language query to billing assistant via Gemini & MCP tools.
