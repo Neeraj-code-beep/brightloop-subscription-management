@@ -44,14 +44,16 @@ describe('Module 11: Plan Migration, Proration & Customer Credit Management Suit
     customerUserA = await seedTestUser(mockPrisma, {
       name: 'Customer A',
       email: 'cust.a@test.com',
-      role: 'CUSTOMER'
+      role: 'CUSTOMER',
+      currency: 'INR'
     });
     customerAId = customerUserA.customerId;
 
     customerUserB = await seedTestUser(mockPrisma, {
       name: 'Customer B',
       email: 'cust.b@test.com',
-      role: 'CUSTOMER'
+      role: 'CUSTOMER',
+      currency: 'INR'
     });
     customerBId = customerUserB.customerId;
 
@@ -810,3 +812,4 @@ describe('Module 11: Plan Migration, Proration & Customer Credit Management Suit
     });
   });
 });
+

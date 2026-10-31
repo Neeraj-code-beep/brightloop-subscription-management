@@ -16,3 +16,4 @@ export const listCreditTransactionsQuerySchema = z.object({
   limit: z.string().optional().transform(val => (val ? parseInt(val, 10) : 20)),
   type: z.enum(['PRORATION_CREDIT', 'MANUAL_ADJUSTMENT', 'INVOICE_APPLICATION', 'REFUND']).optional()
 });
+

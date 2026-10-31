@@ -535,7 +535,8 @@ export class SubscriptionsService {
     }
 
     // 2. Atomic execution
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       const subscription = await tx.subscription.findUnique({
         where: { id: subscriptionId },
         include: {
@@ -658,86 +659,60 @@ export class SubscriptionsService {
       const creditOwed = new Prisma.Decimal(proration.proration.creditOwed);
       const amountDue = new Prisma.Decimal(proration.proration.amountDue);
 
-      // Handle Upgrade
-      if (proration.migrationType === 'UPGRADE') {
-        if (creditApplied.gt(0)) {
-          creditTransaction = await creditsService.applyCredit({
+      // Handle Upgrade Invoice Generation
+      if (proration.migrationType === 'UPGRADE' && amountDue.gt(0)) {
+        const invoiceNumber = await invoicesService.generateInvoiceNumber(tx);
+        const invDate = new Date();
+        const dueDate = invoicesService.calculateDueDate(invDate, 'IMMEDIATE');
+
+        createdInvoice = await tx.invoice.create({
+          data: {
+            invoiceNumber,
             customerId: subscription.customerId,
-            amount: creditApplied,
             subscriptionId: subscription.id,
-            reason: `Credit applied to ${targetPlan.name} upgrade adjustment`,
-            idempotencyKey: idempotencyKey ? `${idempotencyKey}-cred-app` : null,
-            tx
-          });
-        }
-
-        if (amountDue.gt(0)) {
-          const invoiceNumber = await invoicesService.generateInvoiceNumber(tx);
-          const invDate = new Date();
-          const dueDate = invoicesService.calculateDueDate(invDate, 'IMMEDIATE');
-
-          createdInvoice = await tx.invoice.create({
-            data: {
-              invoiceNumber,
-              customerId: subscription.customerId,
-              subscriptionId: subscription.id,
-              status: 'ISSUED',
-              invoiceDate: invDate,
-              dueDate,
-              periodStart: proration.effectiveDate,
-              periodEnd: subscription.currentPeriodEnd,
-              currency: subscription.currency,
-              subtotal: amountDue,
-              discountAmount: new Prisma.Decimal(0),
-              taxAmount: new Prisma.Decimal(0),
-              totalAmount: amountDue,
-              amountPaid: new Prisma.Decimal(0),
-              amountDue,
-              subtotalInCents: Math.round(amountDue.toNumber() * 100),
-              discountInCents: 0,
-              taxInCents: 0,
-              totalInCents: Math.round(amountDue.toNumber() * 100),
-              amountPaidInCents: 0,
-              amountDueInCents: Math.round(amountDue.toNumber() * 100),
-              notes: `Prorated adjustment invoice for plan upgrade from ${subscription.plan?.name} to ${targetPlan.name}.`,
-              items: {
-                create: [
-                  {
-                    productId: targetPlan.productId,
-                    planId: targetPlan.id,
-                    description: `Proration Upgrade: ${targetPlan.name} [${proration.effectiveDate.toISOString().slice(0, 10)} to ${subscription.currentPeriodEnd.toISOString().slice(0, 10)}]`,
-                    quantity: 1,
-                    unitPrice: amountDue,
-                    discountAmount: new Prisma.Decimal(0),
-                    taxAmount: new Prisma.Decimal(0),
-                    taxRate: new Prisma.Decimal(0),
-                    lineSubtotal: amountDue,
-                    lineTotal: amountDue,
-                    unitPriceInCents: Math.round(amountDue.toNumber() * 100),
-                    totalInCents: Math.round(amountDue.toNumber() * 100)
-                  }
-                ]
-              }
-            },
-            include: {
-              customer: true,
-              subscription: true,
-              items: true
+            status: 'ISSUED',
+            invoiceDate: invDate,
+            dueDate,
+            periodStart: proration.effectiveDate,
+            periodEnd: subscription.currentPeriodEnd,
+            currency: subscription.currency,
+            subtotal: amountDue,
+            discountAmount: new Prisma.Decimal(0),
+            taxAmount: new Prisma.Decimal(0),
+            totalAmount: amountDue,
+            amountPaid: new Prisma.Decimal(0),
+            amountDue,
+            subtotalInCents: Math.round(amountDue.toNumber() * 100),
+            discountInCents: 0,
+            taxInCents: 0,
+            totalInCents: Math.round(amountDue.toNumber() * 100),
+            amountPaidInCents: 0,
+            amountDueInCents: Math.round(amountDue.toNumber() * 100),
+            notes: `Prorated adjustment invoice for plan upgrade from ${subscription.plan?.name} to ${targetPlan.name}.`,
+            items: {
+              create: [
+                {
+                  productId: targetPlan.productId,
+                  planId: targetPlan.id,
+                  description: `Proration Upgrade: ${targetPlan.name} [${proration.effectiveDate.toISOString().slice(0, 10)} to ${subscription.currentPeriodEnd.toISOString().slice(0, 10)}]`,
+                  quantity: 1,
+                  unitPrice: amountDue,
+                  discountAmount: new Prisma.Decimal(0),
+                  taxAmount: new Prisma.Decimal(0),
+                  taxRate: new Prisma.Decimal(0),
+                  lineSubtotal: amountDue,
+                  lineTotal: amountDue,
+                  unitPriceInCents: Math.round(amountDue.toNumber() * 100),
+                  totalInCents: Math.round(amountDue.toNumber() * 100)
+                }
+              ]
             }
-          });
-        }
-      }
-
-      // Handle Downgrade
-      if (proration.migrationType === 'DOWNGRADE' && creditOwed.gt(0)) {
-        creditTransaction = await creditsService.issueCredit({
-          customerId: subscription.customerId,
-          amount: creditOwed,
-          type: 'PRORATION_CREDIT',
-          subscriptionId: subscription.id,
-          reason: `Proration credit for immediate downgrade from ${subscription.plan?.name} to ${targetPlan.name}`,
-          idempotencyKey: idempotencyKey ? `${idempotencyKey}-cred-iss` : null,
-          tx
+          },
+          include: {
+            customer: true,
+            subscription: true,
+            items: true
+          }
         });
       }
 
@@ -759,7 +734,7 @@ export class SubscriptionsService {
         }
       });
 
-      // Record immutable migration history
+      // Record immutable migration history before credit transaction so migrationId is known
       const migration = await tx.subscriptionMigration.create({
         data: {
           subscriptionId: subscription.id,
@@ -793,22 +768,71 @@ export class SubscriptionsService {
         }
       });
 
-      // Link migration to credit transaction if generated
-      if (creditTransaction?.id) {
-        await tx.creditTransaction.update({
-          where: { id: creditTransaction.id },
-          data: { migrationId: migration.id }
+      // Record immutable credit transaction with relations directly (write-once ledger)
+      if (proration.migrationType === 'UPGRADE' && creditApplied.gt(0)) {
+        creditTransaction = await creditsService.applyCredit({
+          customerId: subscription.customerId,
+          amount: creditApplied,
+          subscriptionId: subscription.id,
+          invoiceId: createdInvoice?.id || null,
+          migrationId: migration.id,
+          currency: subscription.currency,
+          reason: `Credit applied to ${targetPlan.name} upgrade adjustment`,
+          idempotencyKey: idempotencyKey ? `${idempotencyKey}-cred-app` : null,
+          tx
+        });
+      } else if (proration.migrationType === 'DOWNGRADE' && creditOwed.gt(0)) {
+        creditTransaction = await creditsService.issueCredit({
+          customerId: subscription.customerId,
+          amount: creditOwed,
+          type: 'PRORATION_CREDIT',
+          subscriptionId: subscription.id,
+          migrationId: migration.id,
+          currency: subscription.currency,
+          reason: `Proration credit for immediate downgrade from ${subscription.plan?.name} to ${targetPlan.name}`,
+          idempotencyKey: idempotencyKey ? `${idempotencyKey}-cred-iss` : null,
+          tx
         });
       }
 
-      return {
-        migration: this.formatMigrationResponse(migration),
-        subscription: this.formatSubscriptionResponse(updatedSub),
-        invoice: createdInvoice ? invoicesService.formatInvoiceResponse(createdInvoice) : null,
-        isDuplicate: false,
-        message: `Plan successfully migrated to '${targetPlan.name}'.`
-      };
-    });
+        return {
+          migration: this.formatMigrationResponse(migration),
+          subscription: this.formatSubscriptionResponse(updatedSub),
+          invoice: createdInvoice ? invoicesService.formatInvoiceResponse(createdInvoice) : null,
+          isDuplicate: false,
+          message: `Plan successfully migrated to '${targetPlan.name}'.`
+        };
+      });
+    } catch (err) {
+      if (err.code === 'P2002' && idempotencyKey && (err.meta?.target?.includes('idempotencyKey') || String(err.message).includes('idempotencyKey'))) {
+        const existingMigration = await this.prisma.subscriptionMigration.findUnique({
+          where: { idempotencyKey },
+          include: {
+            fromPlan: true,
+            toPlan: true,
+            invoiceIssued: true,
+            subscription: {
+              include: {
+                customer: true,
+                plan: { include: { product: true } },
+                scheduledPlan: true,
+                items: true
+              }
+            }
+          }
+        });
+
+        if (existingMigration) {
+          return {
+            migration: this.formatMigrationResponse(existingMigration),
+            subscription: this.formatSubscriptionResponse(existingMigration.subscription),
+            isDuplicate: true,
+            message: 'Plan migration was previously processed with this idempotency key.'
+          };
+        }
+      }
+      throw err;
+    }
   }
 
   /**

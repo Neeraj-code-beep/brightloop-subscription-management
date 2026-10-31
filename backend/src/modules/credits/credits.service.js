@@ -129,7 +129,7 @@ export class CreditsService {
     invoiceId = null,
     migrationId = null,
     idempotencyKey = null,
-    currency = 'INR',
+    currency = null,
     metadata = null,
     tx = null
   }) {
@@ -153,6 +153,15 @@ export class CreditsService {
         }
       }
 
+      // Concurrency lock: acquire row lock where available
+      if (typeof db.$queryRaw === 'function') {
+        try {
+          await db.$queryRaw`SELECT "id" FROM "Customer" WHERE "id" = ${customerId} FOR UPDATE`;
+        } catch {
+          // Pass-through in mock / unsupported environments
+        }
+      }
+
       // Lock and fetch current customer balance
       const customer = await db.customer.findUnique({
         where: { id: customerId }
@@ -163,6 +172,14 @@ export class CreditsService {
         throw error;
       }
 
+      // Currency consistency validation
+      if (customer.currency && currency && customer.currency.toUpperCase() !== currency.toUpperCase()) {
+        const error = new Error(`Currency mismatch: customer currency is ${customer.currency}, but transaction currency is ${currency}`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const txCurrency = currency || customer.currency || 'USD';
       const currentBalance = new Prisma.Decimal(customer.creditBalance || 0);
       const newBalance = currentBalance.plus(decimalAmount);
 
@@ -182,7 +199,7 @@ export class CreditsService {
           type,
           amount: decimalAmount,
           balanceAfter: newBalance,
-          currency: currency || customer.currency || 'INR',
+          currency: txCurrency,
           reason,
           idempotencyKey,
           metadata: metadata || {}
@@ -192,10 +209,22 @@ export class CreditsService {
       return this.formatTransaction(transaction);
     };
 
-    if (tx) {
-      return execute(tx);
+    try {
+      if (tx) {
+        return await execute(tx);
+      }
+      return await this.prisma.$transaction(async (db) => execute(db));
+    } catch (err) {
+      if (err.code === 'P2002' && idempotencyKey && (err.meta?.target?.includes('idempotencyKey') || String(err.message).includes('idempotencyKey'))) {
+        const existing = await (tx || this.prisma).creditTransaction.findUnique({
+          where: { idempotencyKey }
+        });
+        if (existing) {
+          return this.formatTransaction(existing);
+        }
+      }
+      throw err;
     }
-    return this.prisma.$transaction(async (db) => execute(db));
   }
 
   /**
@@ -210,7 +239,7 @@ export class CreditsService {
     migrationId = null,
     idempotencyKey = null,
     reason = 'Credit applied to invoice',
-    currency = 'INR',
+    currency = null,
     metadata = null,
     tx = null
   }) {
@@ -233,6 +262,15 @@ export class CreditsService {
         }
       }
 
+      // Concurrency lock: acquire row lock where available
+      if (typeof db.$queryRaw === 'function') {
+        try {
+          await db.$queryRaw`SELECT "id" FROM "Customer" WHERE "id" = ${customerId} FOR UPDATE`;
+        } catch {
+          // Pass-through in mock / unsupported environments
+        }
+      }
+
       // Check customer credit balance
       const customer = await db.customer.findUnique({
         where: { id: customerId }
@@ -243,6 +281,14 @@ export class CreditsService {
         throw error;
       }
 
+      // Currency consistency validation
+      if (customer.currency && currency && customer.currency.toUpperCase() !== currency.toUpperCase()) {
+        const error = new Error(`Currency mismatch: customer currency is ${customer.currency}, but transaction currency is ${currency}`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      const txCurrency = currency || customer.currency || 'USD';
       const currentBalance = new Prisma.Decimal(customer.creditBalance || 0);
       if (currentBalance.lt(decimalAmount)) {
         const error = new Error(`Insufficient customer credit balance. Available: ${currentBalance.toFixed(2)}, Requested: ${decimalAmount.toFixed(2)}`);
@@ -268,7 +314,7 @@ export class CreditsService {
           type: 'INVOICE_APPLICATION',
           amount: decimalAmount.negated(),
           balanceAfter: newBalance,
-          currency: currency || customer.currency || 'INR',
+          currency: txCurrency,
           reason,
           idempotencyKey,
           metadata: metadata || {}
@@ -278,10 +324,22 @@ export class CreditsService {
       return this.formatTransaction(transaction);
     };
 
-    if (tx) {
-      return execute(tx);
+    try {
+      if (tx) {
+        return await execute(tx);
+      }
+      return await this.prisma.$transaction(async (db) => execute(db));
+    } catch (err) {
+      if (err.code === 'P2002' && idempotencyKey && (err.meta?.target?.includes('idempotencyKey') || String(err.message).includes('idempotencyKey'))) {
+        const existing = await (tx || this.prisma).creditTransaction.findUnique({
+          where: { idempotencyKey }
+        });
+        if (existing) {
+          return this.formatTransaction(existing);
+        }
+      }
+      throw err;
     }
-    return this.prisma.$transaction(async (db) => execute(db));
   }
 
   /**
@@ -358,3 +416,4 @@ export class CreditsService {
 }
 
 export const creditsService = new CreditsService();
+

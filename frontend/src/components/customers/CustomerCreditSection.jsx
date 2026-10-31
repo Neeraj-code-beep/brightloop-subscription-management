@@ -267,3 +267,4 @@ export default function CustomerCreditSection({ customerId, isAdmin = false }) {
     </div>
   );
 }
+

@@ -1938,7 +1938,7 @@ export function createMockPrisma() {
   return mock;
 }
 
-export async function seedTestUser(mockPrisma, { name = 'Test User', email, password = 'Password@123', role = 'CUSTOMER', isActive = true, customerId = null }) {
+export async function seedTestUser(mockPrisma, { name = 'Test User', email, password = 'Password@123', role = 'CUSTOMER', isActive = true, customerId = null, currency = 'USD' }) {
   const passwordHash = await hashPassword(password);
   const id = `usr_${Math.random().toString(36).substring(2, 9)}`;
 
@@ -1976,7 +1976,7 @@ export async function seedTestUser(mockPrisma, { name = 'Test User', email, pass
       billingCountry: null,
       taxNumber: null,
       notes: null,
-      currency: 'USD',
+      currency: currency || 'USD',
       creditBalance: new Prisma.Decimal('0.00'),
       isActive: true,
       status: 'ACTIVE',

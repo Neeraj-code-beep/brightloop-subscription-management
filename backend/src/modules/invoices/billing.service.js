@@ -76,13 +76,30 @@ export class BillingService {
     // 4. Construct authoritative line items from subscription snapshots
     const items = [];
 
-    // Main plan line item
-    const recurringPrice = new Prisma.Decimal(sub.recurringPrice || 0);
-    const planName = sub.plan?.name || 'Subscription Plan';
+    // Main plan line item (uses scheduledPlan price if a scheduled migration is taking effect)
+    let recurringPrice = new Prisma.Decimal(sub.recurringPrice || 0);
+    let planName = sub.plan?.name || 'Subscription Plan';
+    let productId = sub.plan?.productId || null;
+    let planId = sub.planId || null;
+    let billingCycle = sub.billingCycle;
+
+    if (sub.scheduledPlanId) {
+      const scheduledPlan = await this.prisma.plan.findUnique({
+        where: { id: sub.scheduledPlanId }
+      });
+      if (scheduledPlan) {
+        recurringPrice = new Prisma.Decimal(scheduledPlan.price || 0);
+        planName = scheduledPlan.name;
+        productId = scheduledPlan.productId;
+        planId = scheduledPlan.id;
+        billingCycle = scheduledPlan.billingCycle;
+      }
+    }
+
     items.push({
-      productId: sub.plan?.productId || null,
-      planId: sub.planId || null,
-      description: `${planName} (${sub.billingCycle}) [${periodStart.toISOString().slice(0, 10)} to ${periodEnd.toISOString().slice(0, 10)}]`,
+      productId,
+      planId,
+      description: `${planName} (${billingCycle}) [${periodStart.toISOString().slice(0, 10)} to ${periodEnd.toISOString().slice(0, 10)}]`,
       quantity: 1,
       unitPrice: recurringPrice,
       discountAmount: new Prisma.Decimal(0),

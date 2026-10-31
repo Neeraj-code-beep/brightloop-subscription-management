@@ -136,3 +136,4 @@ export default function SubscriptionMigrationHistory({ subscriptionId, refreshTr
     </div>
   );
 }
+
