@@ -26,6 +26,11 @@ enum CustomerStatus {
   ARCHIVED
 }
 
+enum CustomerType {
+  INDIVIDUAL
+  COMPANY
+}
+
 enum BillingInterval {
   MONTHLY
   QUARTERLY
@@ -133,26 +138,37 @@ model PasswordResetToken {
 }
 
 model Customer {
-  id              String         @id @default(cuid())
-  userId          String?        @unique
-  user            User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  companyName     String
-  contactName     String
-  email           String         @unique
-  phone           String?
-  billingAddress  Json?
-  shippingAddress Json?
-  taxId           String?
-  currency        String         @default("USD")
-  status          CustomerStatus @default(ACTIVE)
-  quotations      Quotation[]
-  subscriptions   Subscription[]
-  invoices        Invoice[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  userId            String?        @unique
+  user              User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  customerCode      String         @unique
+  customerType      CustomerType   @default(COMPANY)
+  firstName         String?
+  lastName          String?
+  companyName       String?
+  email             String         @unique
+  phone             String?
+  alternatePhone    String?
+  billingAddress    String?
+  billingCity       String?
+  billingState      String?
+  billingPostalCode String?
+  billingCountry    String?
+  taxNumber         String?
+  notes             String?
+  currency          String         @default("USD")
+  isActive          Boolean        @default(true)
+  status            CustomerStatus @default(ACTIVE)
+  quotations        Quotation[]
+  subscriptions     Subscription[]
+  invoices          Invoice[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([email])
-  @@index([status])
+  @@index([customerCode])
+  @@index([customerType])
+  @@index([isActive])
 }
 
 model Product {

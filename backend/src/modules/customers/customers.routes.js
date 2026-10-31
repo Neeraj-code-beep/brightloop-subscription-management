@@ -1,12 +1,75 @@
 import { Router } from 'express';
-import { successResponse } from '../../utils/response.js';
+import { customersController } from './customers.controller.js';
+import { createCustomerSchema, updateCustomerStatusSchema } from './customers.validation.js';
+import { authenticate } from '../../middleware/auth.js';
+import { authorize } from '../../middleware/authorize.js';
+import { authorizeOwnership } from '../../middleware/ownership.js';
+import { validateBody } from '../../middleware/validate.js';
 
 export const customersRouter = Router();
 
-customersRouter.get('/', (req, res) => {
-  return successResponse(res, {
-    message: 'Customers module scaffolded',
-    data: { items: [], pagination: { page: 1, limit: 20, totalItems: 0, totalPages: 0 } }
-  });
-});
+// Create customer (ADMIN, STAFF)
+customersRouter.post(
+  '/',
+  authenticate,
+  authorize('ADMIN', 'STAFF'),
+  validateBody(createCustomerSchema),
+  customersController.create.bind(customersController)
+);
 
+// List customers with pagination, search, and filters (ADMIN, STAFF)
+customersRouter.get(
+  '/',
+  authenticate,
+  authorize('ADMIN', 'STAFF'),
+  customersController.list.bind(customersController)
+);
+
+// Get customer by ID (ADMIN, STAFF, CUSTOMER own record)
+customersRouter.get(
+  '/:id',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.getById.bind(customersController)
+);
+
+// Update customer fields (ADMIN, STAFF, CUSTOMER own permitted fields)
+customersRouter.patch(
+  '/:id',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.update.bind(customersController)
+);
+
+// Activate/Deactivate customer status (ADMIN only)
+customersRouter.patch(
+  '/:id/status',
+  authenticate,
+  authorize('ADMIN'),
+  validateBody(updateCustomerStatusSchema),
+  customersController.updateStatus.bind(customersController)
+);
+
+// Get customer subscriptions (ADMIN, STAFF, CUSTOMER own records)
+customersRouter.get(
+  '/:id/subscriptions',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.getSubscriptions.bind(customersController)
+);
+
+// Get customer invoices (ADMIN, STAFF, CUSTOMER own records)
+customersRouter.get(
+  '/:id/invoices',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.getInvoices.bind(customersController)
+);
+
+// Get customer payments (ADMIN, STAFF, CUSTOMER own records)
+customersRouter.get(
+  '/:id/payments',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.getPayments.bind(customersController)
+);

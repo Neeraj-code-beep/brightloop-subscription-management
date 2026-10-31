@@ -70,14 +70,23 @@ Represents business accounts or individuals who purchase subscriptions.
 - **Customer**
   - `id`: `String` (PK, e.g. `cst_...`)
   - `userId`: `String?` (Unique FK -> `User.id`, for self-service portal access)
-  - `companyName`: `String`
-  - `contactName`: `String`
-  - `email`: `String` (Indexed)
+  - `customerCode`: `String` (Unique, indexed, human-readable e.g. `CUST-XXXXXX`)
+  - `customerType`: `Enum` (`INDIVIDUAL`, `COMPANY`, default: `COMPANY`, indexed)
+  - `firstName`: `String?` (required for `INDIVIDUAL`)
+  - `lastName`: `String?`
+  - `companyName`: `String?` (required for `COMPANY`)
+  - `email`: `String` (Unique, indexed contact email)
   - `phone`: `String?`
-  - `billingAddress`: `Json` (street, city, state, postalCode, country)
-  - `shippingAddress`: `Json?`
-  - `taxId`: `String?` (e.g., VAT, GSTIN)
+  - `alternatePhone`: `String?`
+  - `billingAddress`: `String?`
+  - `billingCity`: `String?`
+  - `billingState`: `String?`
+  - `billingPostalCode`: `String?`
+  - `billingCountry`: `String?`
+  - `taxNumber`: `String?` (e.g. VAT, GSTIN)
+  - `notes`: `String?`
   - `currency`: `String` (Default: `USD`)
+  - `isActive`: `Boolean` (Default: `true`, indexed)
   - `status`: `Enum` (`ACTIVE`, `SUSPENDED`, `ARCHIVED`)
   - `createdAt`: `DateTime`
   - `updatedAt`: `DateTime`

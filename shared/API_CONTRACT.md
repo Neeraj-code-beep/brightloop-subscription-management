@@ -157,11 +157,65 @@ Endpoints returning collections support cursor or page-based pagination using th
 - `PATCH /api/v1/users/:id/status` - Admin only: Activate or deactivate account (revokes active sessions on deactivation).
 
 ### 5.3 Customers (`/api/v1/customers`)
-- `GET    /api/v1/customers` - List customers (paginated, filterable by status/search).
-- `POST   /api/v1/customers` - Create customer record.
-- `GET    /api/v1/customers/:id` - Fetch single customer with summary stats.
-- `PATCH  /api/v1/customers/:id` - Update customer profile.
-- `DELETE /api/v1/customers/:id` - Soft delete customer.
+- `POST   /api/v1/customers` - Create customer record and optionally provision a linked customer login account.
+  - Access: `ADMIN`, `STAFF`
+  - Body:
+    - `customerType`: `'INDIVIDUAL' | 'COMPANY'` (required)
+    - `firstName`: `string` (required if `INDIVIDUAL`)
+    - `lastName`: `string?`
+    - `companyName`: `string` (required if `COMPANY`)
+    - `email`: `string` (unique, contact email, required)
+    - `phone`: `string?`
+    - `alternatePhone`: `string?`
+    - `billingAddress`: `string?`
+    - `billingCity`: `string?`
+    - `billingState`: `string?`
+    - `billingPostalCode`: `string?`
+    - `billingCountry`: `string?`
+    - `taxNumber`: `string?`
+    - `notes`: `string?`
+    - `currency`: `string?` (default `'USD'`)
+    - `createAccount`: `boolean?` (default `false`)
+    - `accountEmail`: `string?` (login email for user account)
+    - `accountPassword`: `string?` (minimum 9 chars, mixed case, number, special char; required if `createAccount` is true)
+    - `accountName`: `string?`
+  - Response: `{ customer, accountCreated, accountEmail? }` (role strictly forced to `CUSTOMER`, password hashes omitted)
+- `GET    /api/v1/customers` - List customers with pagination, search, filtering, and sorting.
+  - Access: `ADMIN`, `STAFF` (Customers forbidden from listing all customers)
+  - Query parameters:
+    - `page`: `number` (default `1`)
+    - `limit`: `number` (default `20`, max `100`)
+    - `search`: `string` (matches across `firstName`, `lastName`, `companyName`, `email`, `customerCode`)
+    - `customerType`: `'INDIVIDUAL' | 'COMPANY'`
+    - `isActive`: `boolean`
+    - `sortBy`: `'createdAt' | 'updatedAt' | 'email' | 'customerCode' | 'firstName' | 'companyName'`
+    - `sortOrder`: `'asc' | 'desc'`
+  - Response: `{ items: Customer[], pagination: { page, limit, totalItems, totalPages, hasNextPage, hasPrevPage } }`
+- `GET    /api/v1/customers/:id` - Fetch single customer record.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (strictly own record verified against authenticated `user.customerId`)
+  - Response: Full safe `Customer` object
+- `PATCH  /api/v1/customers/:id` - Update customer fields.
+  - Access: `ADMIN`, `STAFF` (operational fields), `CUSTOMER` (own permitted profile fields only)
+  - Customer self-update allowlist: `firstName`, `lastName`, `phone`, `alternatePhone`, `billingAddress`, `billingCity`, `billingState`, `billingPostalCode`, `billingCountry`
+  - Admin/Staff allowlist adds: `companyName`, `email`, `taxNumber`, `notes`, `currency`
+  - Protected fields rejected/immutable: `customerCode`, `id`, `userId`, `isActive`, `status`
+  - Response: Updated safe `Customer` object
+- `PATCH  /api/v1/customers/:id/status` - Activate or deactivate customer business status.
+  - Access: `ADMIN` only (`STAFF` and `CUSTOMER` forbidden)
+  - Body: `{ "isActive": boolean }`
+  - Response: Updated safe `Customer` object with synchronized `isActive` and `status` (`ACTIVE` / `SUSPENDED`)
+- `GET    /api/v1/customers/:id/subscriptions` - List customer's paginated subscriptions.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only)
+  - Query parameters: `page`, `limit`
+  - Response: `{ items: SubscriptionSummary[], pagination }`
+- `GET    /api/v1/customers/:id/invoices` - List customer's paginated invoices.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only)
+  - Query parameters: `page`, `limit`
+  - Response: `{ items: InvoiceSummary[], pagination }`
+- `GET    /api/v1/customers/:id/payments` - List customer's paginated payments.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only)
+  - Query parameters: `page`, `limit`
+  - Response: `{ items: PaymentSummary[], pagination }`
 
 ### 5.3 Products & Plans (`/api/v1/products`, `/api/v1/plans`)
 - `GET    /api/v1/products` - List products & associated variants.

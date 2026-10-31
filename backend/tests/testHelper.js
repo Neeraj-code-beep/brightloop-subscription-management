@@ -12,8 +12,45 @@ export function createMockPrisma() {
     payments: []
   };
 
+  const projectSelect = (item, select) => {
+    if (!select || !item) return item;
+    const projected = {};
+    for (const key of Object.keys(select)) {
+      if (select[key]) {
+        if (typeof select[key] === 'object' && select[key] !== null) {
+          // Unwrap Prisma nested { select: { ... } } or direct { ... }
+          const nestedSelect = select[key].select || select[key];
+          projected[key] = item[key] ? projectSelect(item[key], nestedSelect) : null;
+        } else {
+          projected[key] = item[key] !== undefined ? item[key] : null;
+        }
+      }
+    }
+    return projected;
+  };
+
   const mock = {
     _state: state,
+
+    // Atomic transaction mock with state rollback on error
+    $transaction: async (arg) => {
+      if (typeof arg === 'function') {
+        const snapshot = JSON.stringify(state);
+        try {
+          return await arg(mock);
+        } catch (err) {
+          const restored = JSON.parse(snapshot);
+          Object.keys(restored).forEach(k => {
+            state[k] = restored[k];
+          });
+          throw err;
+        }
+      } else if (Array.isArray(arg)) {
+        return Promise.all(arg);
+      }
+      return arg;
+    },
+
     user: {
       findUnique: async ({ where }) => {
         let user = null;
@@ -57,24 +94,32 @@ export function createMockPrisma() {
           customer = {
             id: cId,
             userId: id,
-            companyName: data.customer.create.companyName,
-            contactName: data.customer.create.contactName,
-            email: data.customer.create.email,
-            status: data.customer.create.status || 'ACTIVE'
+            customerCode: data.customer.create.customerCode || `CUST-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+            customerType: data.customer.create.customerType || 'INDIVIDUAL',
+            firstName: data.customer.create.firstName || data.name,
+            lastName: data.customer.create.lastName || null,
+            companyName: data.customer.create.companyName || null,
+            email: data.customer.create.email || data.email,
+            phone: data.customer.create.phone || null,
+            alternatePhone: data.customer.create.alternatePhone || null,
+            billingAddress: data.customer.create.billingAddress || null,
+            billingCity: data.customer.create.billingCity || null,
+            billingState: data.customer.create.billingState || null,
+            billingPostalCode: data.customer.create.billingPostalCode || null,
+            billingCountry: data.customer.create.billingCountry || null,
+            taxNumber: data.customer.create.taxNumber || null,
+            notes: data.customer.create.notes || null,
+            currency: data.customer.create.currency || 'USD',
+            isActive: data.customer.create.isActive !== undefined ? data.customer.create.isActive : true,
+            status: data.customer.create.status || 'ACTIVE',
+            createdAt: new Date(),
+            updatedAt: new Date()
           };
           state.customers.push(customer);
         }
 
         const fullRecord = { ...newUser, customer };
-        if (select) {
-          const projected = {};
-          for (const key of Object.keys(select)) {
-            if (select[key]) projected[key] = fullRecord[key];
-          }
-          return projected;
-        }
-
-        return fullRecord;
+        return projectSelect(fullRecord, select);
       },
       update: async ({ where, data }) => {
         const idx = state.users.findIndex(u => u.id === where.id);
@@ -83,6 +128,114 @@ export function createMockPrisma() {
         return { ...state.users[idx] };
       }
     },
+
+    customer: {
+      findUnique: async ({ where, select }) => {
+        let cust = null;
+        if (where.id) cust = state.customers.find(c => c.id === where.id);
+        else if (where.email) cust = state.customers.find(c => c.email === where.email);
+        else if (where.customerCode) cust = state.customers.find(c => c.customerCode === where.customerCode);
+        else if (where.userId) cust = state.customers.find(c => c.userId === where.userId);
+
+        if (!cust) return null;
+        return projectSelect(cust, select);
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, orderBy = {}, select }) => {
+        let list = [...state.customers];
+
+        if (where.customerType) {
+          list = list.filter(c => c.customerType === where.customerType);
+        }
+        if (where.isActive !== undefined) {
+          list = list.filter(c => c.isActive === where.isActive);
+        }
+        if (where.OR && Array.isArray(where.OR)) {
+          list = list.filter(c => {
+            return where.OR.some(clause => {
+              for (const [key, filter] of Object.entries(clause)) {
+                if (filter?.contains && c[key]) {
+                  const val = String(c[key]).toLowerCase();
+                  const target = String(filter.contains).toLowerCase();
+                  if (val.includes(target)) return true;
+                }
+              }
+              return false;
+            });
+          });
+        }
+
+        const sortField = Object.keys(orderBy)[0] || 'createdAt';
+        const sortOrder = orderBy[sortField] === 'asc' ? 1 : -1;
+        list.sort((a, b) => {
+          if (a[sortField] > b[sortField]) return sortOrder;
+          if (a[sortField] < b[sortField]) return -sortOrder;
+          return 0;
+        });
+
+        const paginated = list.slice(skip, skip + take);
+        return paginated.map(item => projectSelect(item, select));
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.customers];
+        if (where.customerType) {
+          list = list.filter(c => c.customerType === where.customerType);
+        }
+        if (where.isActive !== undefined) {
+          list = list.filter(c => c.isActive === where.isActive);
+        }
+        if (where.OR && Array.isArray(where.OR)) {
+          list = list.filter(c => {
+            return where.OR.some(clause => {
+              for (const [key, filter] of Object.entries(clause)) {
+                if (filter?.contains && c[key]) {
+                  const val = String(c[key]).toLowerCase();
+                  const target = String(filter.contains).toLowerCase();
+                  if (val.includes(target)) return true;
+                }
+              }
+              return false;
+            });
+          });
+        }
+        return list.length;
+      },
+      create: async ({ data, select }) => {
+        const id = `cst_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newCustomer = {
+          id,
+          userId: data.userId || null,
+          customerCode: data.customerCode,
+          customerType: data.customerType || 'COMPANY',
+          firstName: data.firstName || null,
+          lastName: data.lastName || null,
+          companyName: data.companyName || null,
+          email: data.email,
+          phone: data.phone || null,
+          alternatePhone: data.alternatePhone || null,
+          billingAddress: data.billingAddress || null,
+          billingCity: data.billingCity || null,
+          billingState: data.billingState || null,
+          billingPostalCode: data.billingPostalCode || null,
+          billingCountry: data.billingCountry || null,
+          taxNumber: data.taxNumber || null,
+          notes: data.notes || null,
+          currency: data.currency || 'USD',
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          status: data.status || 'ACTIVE',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.customers.push(newCustomer);
+        return projectSelect(newCustomer, select);
+      },
+      update: async ({ where, data, select }) => {
+        const idx = state.customers.findIndex(c => c.id === where.id);
+        if (idx === -1) throw new Error('Customer not found');
+        state.customers[idx] = { ...state.customers[idx], ...data, updatedAt: new Date() };
+        return projectSelect(state.customers[idx], select);
+      }
+    },
+
     refreshToken: {
       findUnique: async ({ where }) => {
         const token = state.refreshTokens.find(t => t.tokenHash === where.tokenHash);
@@ -129,6 +282,7 @@ export function createMockPrisma() {
         return { count };
       }
     },
+
     passwordResetToken: {
       findUnique: async ({ where }) => {
         return state.passwordResetTokens.find(r => r.tokenHash === where.tokenHash) || null;
@@ -168,22 +322,106 @@ export function createMockPrisma() {
         return { count };
       }
     },
-    invoice: {
-      findUnique: async ({ where }) => {
-        return state.invoices.find(i => i.id === where.id) || null;
-      }
-    },
+
     subscription: {
       findUnique: async ({ where }) => {
         return state.subscriptions.find(s => s.id === where.id) || null;
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, select }) => {
+        let list = [...state.subscriptions];
+        if (where.customerId) {
+          list = list.filter(s => s.customerId === where.customerId);
+        }
+        return list.slice(skip, skip + take).map(s => projectSelect(s, select));
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.subscriptions];
+        if (where.customerId) {
+          list = list.filter(s => s.customerId === where.customerId);
+        }
+        return list.length;
+      },
+      create: async ({ data }) => {
+        const sub = {
+          id: `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.subscriptions.push(sub);
+        return sub;
       }
     },
+
+    invoice: {
+      findUnique: async ({ where }) => {
+        return state.invoices.find(i => i.id === where.id) || null;
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, select }) => {
+        let list = [...state.invoices];
+        if (where.customerId) {
+          list = list.filter(i => i.customerId === where.customerId);
+        }
+        return list.slice(skip, skip + take).map(i => projectSelect(i, select));
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.invoices];
+        if (where.customerId) {
+          list = list.filter(i => i.customerId === where.customerId);
+        }
+        return list.length;
+      },
+      create: async ({ data }) => {
+        const inv = {
+          id: `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.invoices.push(inv);
+        return inv;
+      }
+    },
+
     payment: {
       findUnique: async ({ where }) => {
         const p = state.payments.find(pay => pay.id === where.id);
         if (!p) return null;
         const inv = state.invoices.find(i => i.id === p.invoiceId);
         return { ...p, invoice: inv };
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, select }) => {
+        let list = [...state.payments];
+        if (where.invoice?.customerId) {
+          list = list.filter(p => {
+            const inv = state.invoices.find(i => i.id === p.invoiceId);
+            return inv && inv.customerId === where.invoice.customerId;
+          });
+        }
+        return list.slice(skip, skip + take).map(p => {
+          const inv = state.invoices.find(i => i.id === p.invoiceId);
+          return projectSelect({ ...p, invoice: inv }, select);
+        });
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.payments];
+        if (where.invoice?.customerId) {
+          list = list.filter(p => {
+            const inv = state.invoices.find(i => i.id === p.invoiceId);
+            return inv && inv.customerId === where.invoice.customerId;
+          });
+        }
+        return list.length;
+      },
+      create: async ({ data }) => {
+        const p = {
+          id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.payments.push(p);
+        return p;
       }
     }
   };
@@ -214,10 +452,26 @@ export async function seedTestUser(mockPrisma, { name = 'Test User', email, pass
     mockPrisma._state.customers.push({
       id: custId,
       userId: id,
-      companyName: name,
-      contactName: name,
+      customerCode: `CUST-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+      customerType: 'INDIVIDUAL',
+      firstName: name,
+      lastName: null,
+      companyName: null,
       email,
-      status: 'ACTIVE'
+      phone: null,
+      alternatePhone: null,
+      billingAddress: null,
+      billingCity: null,
+      billingState: null,
+      billingPostalCode: null,
+      billingCountry: null,
+      taxNumber: null,
+      notes: null,
+      currency: 'USD',
+      isActive: true,
+      status: 'ACTIVE',
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
   }
 
@@ -225,4 +479,3 @@ export async function seedTestUser(mockPrisma, { name = 'Test User', email, pass
 
   return { user, token, customerId: custId };
 }
-

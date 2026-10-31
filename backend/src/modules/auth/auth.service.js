@@ -30,6 +30,7 @@ export class AuthService {
     const passwordHash = await hashPassword(password);
 
     // 3. Create User with CUSTOMER role (strictly server-enforced) and associated Customer record
+    const customerCode = `CUST-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     const user = await prisma.user.create({
       data: {
         name,
@@ -39,9 +40,11 @@ export class AuthService {
         isActive: true,
         customer: {
           create: {
-            companyName: name,
-            contactName: name,
+            customerCode,
+            customerType: 'INDIVIDUAL',
+            firstName: name,
             email,
+            isActive: true,
             status: 'ACTIVE'
           }
         }
