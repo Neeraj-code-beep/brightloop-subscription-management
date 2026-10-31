@@ -273,7 +273,40 @@ Endpoints returning collections support cursor or page-based pagination using th
   - Body: `{ "isActive": boolean }`
   - Response: Updated `ProductVariant`
 
-### 5.5 Subscriptions & Quotations (`/api/v1/subscriptions`, `/api/v1/quotations`)
+### 5.5 Plans & Billing Cycles (`/api/v1/plans`)
+- `POST   /api/v1/plans` - Create a plan tied to a product and selected variants.
+  - Access: `ADMIN`, `STAFF`
+  - Body:
+    - `name`: `string` (required, 1-100 chars)
+    - `description`: `string?` (max 500 chars)
+    - `productId`: `string` (required, must belong to active product)
+    - `billingCycle`: `MONTHLY | QUARTERLY | HALF_YEARLY | YEARLY | CUSTOM` (required)
+    - `customDuration`: `number?` (positive integer, required if cycle is `CUSTOM`)
+    - `customDurationUnit`: `DAYS | WEEKS | MONTHS | YEARS` (required if cycle is `CUSTOM`)
+    - `price`: `number | string` (optional; if supplied, must match authoritative backend total: product basePrice + active variant additionalPrices)
+    - `setupFee`: `number | string` (optional non-negative Decimal, default: `0.00`)
+    - `currency`: `string` (default: `'INR'`)
+    - `variantIds`: `string[]` (optional, all variants must be active and belong to `productId`)
+    - `isActive`: `boolean` (default: `true`)
+  - Validates: Product and variants exist and are active; variants belong to the plan's product; no duplicate variants; unique plan name per product and cycle.
+  - Response: Created Plan with `pricingBreakdown`, `product`, `variants`, and `nextBillingDatePreview`
+- `GET    /api/v1/plans` - List plans with dual pagination (offset and cursor modes).
+  - Access: `ADMIN`, `STAFF`
+  - Query parameters: `page`, `limit`, `cursor`, `search`, `productId`, `billingCycle`, `isActive`, `sortBy`, `sortOrder`
+  - Response: `{ items: Plan[], pagination: { mode, limit, ... } }`
+- `GET    /api/v1/plans/:id` - Get complete plan details with product, variants, and pricing breakdown.
+  - Access: `ADMIN`, `STAFF`
+  - Response: Plan object
+- `PATCH  /api/v1/plans/:id` - Update plan details, configuration, or associated variants.
+  - Access: `ADMIN`, `STAFF`
+  - Body: Allowlisted fields (`name`, `description`, `billingCycle`, `customDuration`, `customDurationUnit`, `price`, `setupFee`, `currency`, `variantIds`, `isActive`)
+  - Response: Updated Plan object
+- `PATCH  /api/v1/plans/:id/status` - Activate or deactivate plan.
+  - Access: `ADMIN`, `STAFF`
+  - Body: `{ "isActive": boolean }`
+  - Response: Updated Plan object
+
+### 5.6 Subscriptions & Quotations (`/api/v1/subscriptions`, `/api/v1/quotations`)
 - `GET    /api/v1/quotations` - List quotations.
 - `POST   /api/v1/quotations` - Create quotation for customer.
 - `POST   /api/v1/quotations/:id/convert` - Convert accepted quotation into active subscription.
@@ -284,7 +317,7 @@ Endpoints returning collections support cursor or page-based pagination using th
 - `POST   /api/v1/subscriptions/:id/cancel` - Cancel subscription (immediately or at period end).
 - `POST   /api/v1/subscriptions/:id/pause` - Pause subscription.
 
-### 5.5 Invoices (`/api/v1/invoices`)
+### 5.7 Invoices (`/api/v1/invoices`)
 - `GET    /api/v1/invoices` - List invoices (filterable by status: `DRAFT`, `OPEN`, `PAID`, `VOID`, `UNCOLLECTIBLE`).
 - `POST   /api/v1/invoices` - Manually create one-off or ad-hoc invoice.
 - `GET    /api/v1/invoices/:id` - Get invoice details, line items, taxes, discounts, and payments.
@@ -292,7 +325,7 @@ Endpoints returning collections support cursor or page-based pagination using th
 - `POST   /api/v1/invoices/:id/void` - Void an open/uncollectible invoice.
 - `GET    /api/v1/invoices/:id/pdf` - Download invoice PDF.
 
-### 5.6 Payments (`/api/v1/payments`)
+### 5.8 Payments (`/api/v1/payments`)
 - `GET    /api/v1/payments` - List payments and transactions.
 - `POST   /api/v1/payments` - Record payment against invoice.
 - `GET    /api/v1/payments/:id` - Payment transaction details.

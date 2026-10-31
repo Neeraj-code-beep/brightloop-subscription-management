@@ -11,7 +11,9 @@ export function createMockPrisma() {
     subscriptions: [],
     payments: [],
     products: [],
-    productVariants: []
+    productVariants: [],
+    plans: [],
+    planVariants: []
   };
 
   const projectSelect = (item, select) => {
@@ -603,6 +605,179 @@ export function createMockPrisma() {
         if (idx === -1) throw new Error('Variant not found');
         state.productVariants[idx] = { ...state.productVariants[idx], ...data, updatedAt: new Date() };
         return projectSelect(state.productVariants[idx], select);
+      }
+    },
+
+    plan: {
+      findUnique: async ({ where, include, select }) => {
+        const p = state.plans.find(x => x.id === where.id);
+        if (!p) return null;
+        const res = { ...p };
+        if (include?.product) {
+          res.product = state.products.find(prod => prod.id === p.productId) || null;
+        }
+        if (include?.planVariants) {
+          const pvs = state.planVariants.filter(pv => pv.planId === p.id);
+          res.planVariants = pvs.map(pv => {
+            const variant = state.productVariants.find(v => v.id === pv.variantId) || null;
+            return { ...pv, variant };
+          });
+        }
+        return projectSelect(res, select);
+      },
+      findFirst: async ({ where }) => {
+        let list = [...state.plans];
+        if (where.productId) list = list.filter(p => p.productId === where.productId);
+        if (where.name) {
+          const target = String(where.name).toLowerCase();
+          list = list.filter(p => p.name.toLowerCase() === target);
+        }
+        if (where.billingCycle) {
+          list = list.filter(p => p.billingCycle === where.billingCycle);
+        }
+        if (where.NOT?.id) {
+          list = list.filter(p => p.id !== where.NOT.id);
+        }
+        return list[0] ? { ...list[0] } : null;
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
+        let list = [...state.plans];
+        if (where.productId) list = list.filter(p => p.productId === where.productId);
+        if (where.billingCycle) list = list.filter(p => p.billingCycle === where.billingCycle);
+        if (where.isActive !== undefined) list = list.filter(p => p.isActive === where.isActive);
+        if (where.name?.contains) {
+          const search = String(where.name.contains).toLowerCase();
+          list = list.filter(p => p.name.toLowerCase().includes(search));
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(p => p.id === cursor.id);
+          if (idx !== -1) {
+            startIndex = idx + (skip || 0);
+          }
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(p => {
+          const res = { ...p };
+          if (include?.product) {
+            res.product = state.products.find(prod => prod.id === p.productId) || null;
+          }
+          if (include?.planVariants) {
+            const pvs = state.planVariants.filter(pv => pv.planId === p.id);
+            res.planVariants = pvs.map(pv => {
+              const variant = state.productVariants.find(v => v.id === pv.variantId) || null;
+              return { ...pv, variant };
+            });
+          }
+          return projectSelect(res, select);
+        });
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.plans];
+        if (where.productId) list = list.filter(p => p.productId === where.productId);
+        if (where.billingCycle) list = list.filter(p => p.billingCycle === where.billingCycle);
+        if (where.isActive !== undefined) list = list.filter(p => p.isActive === where.isActive);
+        if (where.name?.contains) {
+          const search = String(where.name.contains).toLowerCase();
+          list = list.filter(p => p.name.toLowerCase().includes(search));
+        }
+        return list.length;
+      },
+      create: async ({ data, include, select }) => {
+        const id = `plan_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newPlan = {
+          id,
+          productId: data.productId,
+          name: data.name,
+          description: data.description || null,
+          billingCycle: data.billingCycle || 'MONTHLY',
+          customDuration: data.customDuration || null,
+          customDurationUnit: data.customDurationUnit || null,
+          price: data.price,
+          setupFee: data.setupFee,
+          currency: data.currency || 'INR',
+          trialDays: data.trialDays || 0,
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.plans.push(newPlan);
+
+        if (data.planVariants?.create) {
+          for (const item of data.planVariants.create) {
+            state.planVariants.push({
+              id: `pv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              planId: id,
+              variantId: item.variantId,
+              createdAt: new Date()
+            });
+          }
+        }
+
+        const res = { ...newPlan };
+        if (include?.product) {
+          res.product = state.products.find(prod => prod.id === newPlan.productId) || null;
+        }
+        if (include?.planVariants) {
+          const pvs = state.planVariants.filter(pv => pv.planId === id);
+          res.planVariants = pvs.map(pv => {
+            const variant = state.productVariants.find(v => v.id === pv.variantId) || null;
+            return { ...pv, variant };
+          });
+        }
+        return projectSelect(res, select);
+      },
+      update: async ({ where, data, include, select }) => {
+        const idx = state.plans.findIndex(p => p.id === where.id);
+        if (idx === -1) throw new Error('Plan not found');
+        state.plans[idx] = { ...state.plans[idx], ...data, updatedAt: new Date() };
+
+        const res = { ...state.plans[idx] };
+        if (include?.product) {
+          res.product = state.products.find(prod => prod.id === res.productId) || null;
+        }
+        if (include?.planVariants) {
+          const pvs = state.planVariants.filter(pv => pv.planId === where.id);
+          res.planVariants = pvs.map(pv => {
+            const variant = state.productVariants.find(v => v.id === pv.variantId) || null;
+            return { ...pv, variant };
+          });
+        }
+        return projectSelect(res, select);
+      }
+    },
+
+    planVariant: {
+      deleteMany: async ({ where = {} }) => {
+        const before = state.planVariants.length;
+        if (where.planId) {
+          state.planVariants = state.planVariants.filter(pv => pv.planId !== where.planId);
+        }
+        return { count: before - state.planVariants.length };
+      },
+      createMany: async ({ data = [] }) => {
+        let count = 0;
+        for (const item of data) {
+          state.planVariants.push({
+            id: `pv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            planId: item.planId,
+            variantId: item.variantId,
+            createdAt: new Date()
+          });
+          count++;
+        }
+        return { count };
+      },
+      findMany: async ({ where = {} }) => {
+        let list = [...state.planVariants];
+        if (where.planId) list = list.filter(pv => pv.planId === where.planId);
+        if (where.variantId) list = list.filter(pv => pv.variantId === where.variantId);
+        return list;
       }
     }
   };

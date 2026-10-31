@@ -126,16 +126,40 @@ Defines software offerings, add-ons, seats, and recurring billing plans.
   - `updatedAt`: `DateTime`
   - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
+- **BillingCycle**
+  - `MONTHLY`, `QUARTERLY`, `HALF_YEARLY`, `YEARLY`, `CUSTOM`
+
+- **CustomBillingUnit**
+  - `DAYS`, `WEEKS`, `MONTHS`, `YEARS`
+
 - **Plan**
-  - `id`: `String` (PK)
-  - `variantId`: `String` (FK -> `ProductVariant.id`)
-  - `name`: `String` (e.g. "Pro Annual", "Starter Monthly")
-  - `billingInterval`: `Enum` (`MONTHLY`, `QUARTERLY`, `SEMI_ANNUAL`, `ANNUAL`)
-  - `intervalCount`: `Int` (Default: `1`)
-  - `priceInCents`: `Int` (Billing price in cents)
-  - `currency`: `String` (Default: `USD`)
+  - `id`: `String` (PK, cuid)
+  - `productId`: `String` (FK -> `Product.id`, Cascade Delete, Indexed)
+  - `name`: `String` (Plan display name, e.g. "Pro Annual", "Starter Monthly")
+  - `description`: `String?`
+  - `billingCycle`: `Enum` (`BillingCycle`, Default: `MONTHLY`, Indexed)
+  - `customDuration`: `Int?` (Required when `billingCycle` is `CUSTOM`)
+  - `customDurationUnit`: `Enum` (`CustomBillingUnit?`)
+  - `price`: `Decimal(12, 2)` (Recurring subscription price snapshot = basePrice + selected active variants)
+  - `setupFee`: `Decimal(12, 2)` (One-time upfront fee, Default: `0.00`)
+  - `currency`: `String` (Default: `"INR"`)
   - `trialDays`: `Int` (Default: `0`)
-  - `isActive`: `Boolean` (Default: `true`)
+  - `isActive`: `Boolean` (Default: `true`, Indexed)
+  - `variantId`: `String?` (FK -> `ProductVariant.id`, SetNull on delete, legacy support)
+  - `billingInterval`: `Enum` (`BillingInterval`, Default: `MONTHLY`, legacy support)
+  - `intervalCount`: `Int` (Default: `1`)
+  - `priceInCents`: `Int` (Default: `0`)
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
+
+> **Pricing Architecture Decision (Snapshot vs Dynamic Calculation):**
+> Plan `price` is stored as an authoritative snapshot upon creation and update rather than purely derived at runtime. This guarantees historical financial consistency for active and renewing subscriptions if underlying base product prices or variant additional prices change in the future. Price validity is strictly enforced at creation/update via backend computation: $\text{Plan Price} = \text{Base Product Price} + \sum \text{Selected Active Variant Prices}$.
+
+- **PlanVariant** (Join Entity for Plan & ProductVariant)
+  - `id`: `String` (PK, cuid)
+  - `planId`: `String` (FK -> `Plan.id`, Cascade Delete, Indexed)
+  - `variantId`: `String` (FK -> `ProductVariant.id`, Cascade Delete, Indexed)
+  - `createdAt`: `DateTime` (Default: `now()`)
+  - Unique Constraint: `@@unique([planId, variantId])`
 
 ---
 
