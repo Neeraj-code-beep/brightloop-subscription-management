@@ -24,11 +24,12 @@ describe('AI Service Health Check & API Contract', () => {
     expect(res.body).toHaveProperty('message');
   });
 
-  it('POST /api/v1/ai/chat returns fallback reply when GEMINI_API_KEY is not configured', async () => {
+  it('POST /api/v1/ai/chat returns dual-key response (reply and answer) in scaffolding mode', async () => {
     const res = await request(app).post('/api/v1/ai/chat').send({ prompt: 'Hello' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
     expect(res.body.data).toHaveProperty('reply');
+    expect(res.body.data).toHaveProperty('answer');
+    expect(res.body.data.reply).toBe(res.body.data.answer);
   });
 });
-
