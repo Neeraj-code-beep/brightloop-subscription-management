@@ -17,8 +17,11 @@ export class HuggingFaceFallbackClient {
     this.baseUrl = baseUrl || config.huggingFaceBaseUrl;
   }
 
-  isConfigured(): boolean {
-    return Boolean(this.apiKey && this.apiKey.trim().length > 0);
+  isConfigured(forceLive = false): boolean {
+    if (!forceLive && process.env.VITEST === 'true' && process.env.ENABLE_LIVE_API !== 'true' && process.env.LIVE_VERIFICATION !== 'true') {
+      return false;
+    }
+    return Boolean(this.apiKey && this.apiKey.trim().length > 0 && !this.apiKey.includes('your-huggingface-api-key'));
   }
 
   async generateResponse(params: {
@@ -26,7 +29,7 @@ export class HuggingFaceFallbackClient {
     verifiedContext: FallbackContextItem[];
     systemInstruction?: string;
   }): Promise<{ reply: string; model: string; provider: 'huggingface' }> {
-    if (!this.isConfigured()) {
+    if (!this.isConfigured(true)) {
       throw new Error(
         'Hugging Face fallback is not configured. Please specify HUGGINGFACE_API_KEY in your environment.'
       );

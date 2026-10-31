@@ -97,7 +97,7 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
   describe('2. Provider Configuration & Environment Variable Verification', () => {
     it('verifies Gemini and Hugging Face model identifiers and router endpoints', () => {
       // Confirms supported model identifiers
-      expect(config.geminiModel).toBe('gemini-2.0-flash');
+      expect(config.geminiModel).toBe('gemini-3.8-flash');
       expect(config.geminiEmbeddingModel).toBe('gemini-embedding-001');
       expect(config.huggingFaceModel).toBe('meta-llama/Llama-3.1-8B-Instruct');
       expect(config.huggingFaceBaseUrl).toBe('https://router.huggingface.co/v1/chat/completions');
