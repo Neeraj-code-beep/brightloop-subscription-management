@@ -15,8 +15,9 @@ export async function generateEmbedding(text: string, dimensions = 768): Promise
         }
       });
 
-      if (response.embedding?.values && Array.isArray(response.embedding.values)) {
-        return response.embedding.values;
+      const values = response.embeddings?.[0]?.values || response.embedding?.values;
+      if (values && Array.isArray(values)) {
+        return values;
       }
     } catch (err: any) {
       console.warn(

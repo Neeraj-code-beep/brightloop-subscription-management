@@ -42,18 +42,23 @@ describe('MCP Billing Tools & Financial Integrity [Mocked Tests]', () => {
   it('uses authoritative backend-calculated customer billing summary without recalculating', async () => {
     const authoritativeBackendSummary = {
       customerId: 'cst_01',
-      companyName: 'Acme Corp',
-      currency: 'EUR', // Preserves non-USD currency
+      currency: 'INR',
       summary: {
-        activeSubscriptionsCount: 3,
-        totalOutstandingInCents: 45000,
-        overdueInvoicesCount: 1,
-        calculatedAt: '2026-10-31T12:00:00Z'
+        totalSubscriptions: 3,
+        activeSubscriptions: 2,
+        totalInvoices: 12,
+        paidInvoices: 9,
+        unpaidInvoices: 2,
+        overdueInvoices: 1,
+        totalInvoiced: '45000.00',
+        totalPaid: '35000.00',
+        totalOutstanding: '10000.00',
+        totalOverdue: '4000.00'
       }
     };
 
     const mockHandler = async (url: string) => {
-      if (url.includes('/customers/cst_01/summary')) {
+      if (url.includes('summary')) {
         return {
           status: 200,
           body: { success: true, data: authoritativeBackendSummary }
@@ -66,16 +71,17 @@ describe('MCP Billing Tools & Financial Integrity [Mocked Tests]', () => {
     const res = await mcpClient.callTool('get_customer_billing_summary', { customerId: 'cst_01' });
 
     expect(res.isError).toBe(false);
-    expect(res.data.currency).toBe('EUR');
-    expect(res.data.summary.totalOutstandingInCents).toBe(45000);
+    expect(res.data.currency).toBe('INR');
+    expect(res.data.summary.totalOutstanding).toBe('10000.00');
+    expect(res.data.summary.totalInvoiced).toBe('45000.00');
     // Verifies the exact backend summary object was passed without alteration
-    expect(res.data.summary.activeSubscriptionsCount).toBe(3);
+    expect(res.data.summary.activeSubscriptions).toBe(2);
     await mcpClient.close();
   });
 
   it('returns unavailable response when backend billing summary endpoint is not implemented', async () => {
     const mockHandler = async (url: string) => {
-      if (url.includes('/summary')) {
+      if (url.includes('summary')) {
         return { status: 404, body: { message: 'Summary endpoint not found' } };
       }
       // Customer profile without summary stats
@@ -106,11 +112,12 @@ describe('MCP Billing Tools & Financial Integrity [Mocked Tests]', () => {
       status: 200,
       body: {
         data: {
-          mrrInCents: 1542000,
-          arrInCents: 18504000,
+          mrr: '154200.00',
+          arr: '1850400.00',
           activeSubscriptions: 42,
-          totalOutstandingInCents: 85000,
-          currency: 'CAD' // Canadian Dollars
+          outstandingInvoicesCount: 5,
+          totalOutstanding: '8500.00',
+          currency: 'INR'
         }
       }
     });
@@ -119,8 +126,8 @@ describe('MCP Billing Tools & Financial Integrity [Mocked Tests]', () => {
     const res = await mcpClient.callTool('get_revenue_summary', {});
 
     expect(res.isError).toBe(false);
-    expect(res.data.mrrInCents).toBe(1542000);
-    expect(res.data.currency).toBe('CAD');
+    expect(res.data.mrr).toBe('154200.00');
+    expect(res.data.currency).toBe('INR');
     await mcpClient.close();
   });
 

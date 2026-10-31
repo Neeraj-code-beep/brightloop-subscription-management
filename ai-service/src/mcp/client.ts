@@ -3,6 +3,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer } from './server.js';
 import { BackendApiClient, BackendMockHandler } from './backendClient.js';
 import { McpToolDefinition } from './tools/billingTools.js';
+import { AuthIdentity } from '../auth/identityResolver.js';
 
 export class McpBillingClient {
   private client: Client;
@@ -11,9 +12,9 @@ export class McpBillingClient {
   private initPromise: Promise<void>;
   private isClosed = false;
 
-  constructor(jwtToken?: string, mockHandler?: BackendMockHandler) {
+  constructor(jwtToken?: string, mockHandler?: BackendMockHandler, identity?: AuthIdentity) {
     const backendClient = new BackendApiClient(jwtToken, mockHandler);
-    const server = createMcpServer(backendClient);
+    const server = createMcpServer(backendClient, identity);
 
     const clientInstance = new Client(
       {

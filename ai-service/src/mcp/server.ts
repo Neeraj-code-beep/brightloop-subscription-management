@@ -2,14 +2,15 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { billingTools } from './tools/billingTools.js';
 import { BackendApiClient, BackendHttpError } from './backendClient.js';
+import { AuthIdentity, ROLE_ALLOWED_TOOLS, authorizeToolExecution } from '../auth/identityResolver.js';
 
-export function createMcpServer(backendClient?: BackendApiClient) {
+export function createMcpServer(backendClient?: BackendApiClient, identity?: AuthIdentity) {
   const client = backendClient || new BackendApiClient();
 
   const server = new Server(
     {
       name: 'brightloop-billing-mcp',
-      version: '1.0.0'
+      version: '1.2.0'
     },
     {
       capabilities: {
@@ -18,17 +19,47 @@ export function createMcpServer(backendClient?: BackendApiClient) {
     }
   );
 
-  // List available tools
+  // List available tools (role-filtered when identity is provided)
   server.setRequestHandler(ListToolsRequestSchema, async () => {
+    if (identity) {
+      const allowed = ROLE_ALLOWED_TOOLS[identity.role] || [];
+      return {
+        tools: billingTools.filter((t) => allowed.includes(t.name))
+      };
+    }
     return {
       tools: billingTools
     };
   });
 
-  // Execute tool calls
+  // Execute tool calls with RBAC and customer ownership enforcement
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const toolArgs = args || {};
+    let toolArgs = (args || {}) as Record<string, any>;
+
+    // Enforce role authorization and customer isolation
+    if (identity) {
+      const authCheck = authorizeToolExecution(identity, name, toolArgs);
+      if (!authCheck.authorized) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                error: true,
+                tool: name,
+                statusCode: 403,
+                isAuthError: true,
+                message: authCheck.reason,
+                details: { role: identity.role, customerId: identity.customerId }
+              })
+            }
+          ]
+        };
+      }
+      toolArgs = authCheck.effectiveArgs;
+    }
 
     try {
       let result: any = null;
@@ -36,8 +67,10 @@ export function createMcpServer(backendClient?: BackendApiClient) {
       switch (name) {
         case 'search_customer': {
           const query = String(toolArgs.query || '');
-          const limit = Number(toolArgs.limit) || 10;
-          result = await client.searchCustomers(query, limit);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 10;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.searchCustomers(query, { page, limit, cursor });
           break;
         }
 
@@ -50,28 +83,54 @@ export function createMcpServer(backendClient?: BackendApiClient) {
         case 'get_customer_subscriptions': {
           const customerId = String(toolArgs.customerId || '');
           const status = toolArgs.status ? String(toolArgs.status) : undefined;
-          result = await client.getCustomerSubscriptions(customerId, status);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 20;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.getCustomerSubscriptions(customerId, { status, page, limit, cursor });
           break;
         }
 
         case 'get_customer_invoice_history': {
           const customerId = String(toolArgs.customerId || '');
           const status = toolArgs.status ? String(toolArgs.status) : undefined;
-          const limit = Number(toolArgs.limit) || 20;
-          result = await client.getCustomerInvoices(customerId, status, limit);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 20;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.getCustomerInvoices(customerId, { status, page, limit, cursor });
           break;
         }
 
         case 'get_invoice_details': {
           const invoiceId = String(toolArgs.invoiceId || '');
-          result = await client.getInvoiceDetails(invoiceId);
+          const invoice = await client.getInvoiceDetails(invoiceId);
+          if (identity && identity.role === 'CUSTOMER' && identity.customerId && invoice.customerId && invoice.customerId !== identity.customerId) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({
+                    error: true,
+                    tool: name,
+                    statusCode: 403,
+                    isAuthError: true,
+                    message: `Access Denied: Invoice ${invoiceId} belongs to another customer account.`,
+                    details: { role: identity.role, customerId: identity.customerId }
+                  })
+                }
+              ]
+            };
+          }
+          result = invoice;
           break;
         }
 
         case 'get_customer_payment_history': {
           const customerId = String(toolArgs.customerId || '');
-          const limit = Number(toolArgs.limit) || 20;
-          result = await client.getCustomerPayments(customerId, limit);
+          const page = toolArgs.page !== undefined ? Number(toolArgs.page) : undefined;
+          const limit = toolArgs.limit !== undefined ? Number(toolArgs.limit) : 20;
+          const cursor = toolArgs.cursor !== undefined ? String(toolArgs.cursor) : undefined;
+          result = await client.getCustomerPayments(customerId, { page, limit, cursor });
           break;
         }
 

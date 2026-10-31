@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { app } from '../src/index.js';
+import { config } from '../src/config/index.js';
+import { startMockBackendServer, MockServerInstance } from './helpers/mockBackendServer.js';
 import { retrieveRelevantDocuments } from '../src/rag/retriever.js';
 import {
   registerVerifiedDocument,
@@ -8,6 +10,20 @@ import {
 } from '../src/rag/knowledgeStore.js';
 
 describe('RAG Knowledge Retrieval & Document Isolation', () => {
+  let mockServer: MockServerInstance;
+  let originalBackendUrl: string;
+
+  beforeAll(async () => {
+    mockServer = await startMockBackendServer();
+    originalBackendUrl = config.backendApiUrl;
+    config.backendApiUrl = mockServer.baseUrl;
+  });
+
+  afterAll(async () => {
+    config.backendApiUrl = originalBackendUrl;
+    await mockServer.close();
+  });
+
   beforeEach(() => {
     clearVerifiedDocuments();
   });
@@ -76,9 +92,20 @@ describe('RAG Knowledge Retrieval & Document Isolation', () => {
     expect(staffResults.results.some((r) => r.documentId === 'demo_enterprise_terms')).toBe(true);
   });
 
-  it('POST /api/v1/ai/rag/query returns 200 with standard envelope and "No verified policy document available"', async () => {
+  it('POST /api/v1/ai/rag/query returns 401 when unauthenticated', async () => {
     const res = await request(app)
       .post('/api/v1/ai/rag/query')
+      .send({ query: 'cancellation terms' });
+
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toContain('Authentication required');
+  });
+
+  it('POST /api/v1/ai/rag/query returns 200 with standard envelope and "No verified policy document available" when authenticated', async () => {
+    const res = await request(app)
+      .post('/api/v1/ai/rag/query')
+      .set('Authorization', 'Bearer jwt_token_customer_rahul')
       .send({ query: 'cancellation terms' });
 
     expect(res.status).toBe(200);
@@ -88,7 +115,10 @@ describe('RAG Knowledge Retrieval & Document Isolation', () => {
   });
 
   it('POST /api/v1/ai/rag/query returns 400 when query is missing', async () => {
-    const res = await request(app).post('/api/v1/ai/rag/query').send({});
+    const res = await request(app)
+      .post('/api/v1/ai/rag/query')
+      .set('Authorization', 'Bearer jwt_token_customer_rahul')
+      .send({});
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);

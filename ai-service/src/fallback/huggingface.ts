@@ -17,8 +17,11 @@ export class HuggingFaceFallbackClient {
     this.baseUrl = baseUrl || config.huggingFaceBaseUrl;
   }
 
-  isConfigured(): boolean {
-    return Boolean(this.apiKey && this.apiKey.trim().length > 0);
+  isConfigured(forceLive = false): boolean {
+    if (!forceLive && process.env.VITEST === 'true' && process.env.ENABLE_LIVE_API !== 'true' && process.env.LIVE_VERIFICATION !== 'true') {
+      return false;
+    }
+    return Boolean(this.apiKey && this.apiKey.trim().length > 0 && !this.apiKey.includes('your-huggingface-api-key'));
   }
 
   async generateResponse(params: {
@@ -26,7 +29,7 @@ export class HuggingFaceFallbackClient {
     verifiedContext: FallbackContextItem[];
     systemInstruction?: string;
   }): Promise<{ reply: string; model: string; provider: 'huggingface' }> {
-    if (!this.isConfigured()) {
+    if (!this.isConfigured(true)) {
       throw new Error(
         'Hugging Face fallback is not configured. Please specify HUGGINGFACE_API_KEY in your environment.'
       );
@@ -35,8 +38,8 @@ export class HuggingFaceFallbackClient {
     const defaultSystem =
       'You are SubPilot, an enterprise billing AI assistant for Brightloop Software Subscription Management System (SMS). ' +
       'Answer user billing questions accurately based ONLY on the verified business records provided in the context. ' +
-      'Format monetary amounts accurately in dollars and cents ($X.XX USD) based on backend cents values. ' +
-      'Do not fabricate or hallucinate financial transactions, invoice numbers, or customer names.';
+      'Preserve exact decimal string monetary figures (e.g. "45000.00", "10000.00") and currency codes (e.g. INR) verbatim. ' +
+      'Never divide amounts by 100. Never convert to floats. Do not fabricate or hallucinate financial transactions, invoice numbers, or customer names.';
 
     const contextSummary = params.verifiedContext.length > 0
       ? params.verifiedContext

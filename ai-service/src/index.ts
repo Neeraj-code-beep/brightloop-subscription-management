@@ -4,6 +4,7 @@ import { config } from './config/index.js';
 import { successResponse, errorResponse } from './utils/response.js';
 import { processBillingQuery } from './services/billingAssistant.js';
 import { retrieveRelevantDocuments } from './rag/retriever.js';
+import { resolveAuthIdentity } from './auth/identityResolver.js';
 
 export const app = express();
 
@@ -69,9 +70,10 @@ app.post('/api/v1/ai/chat', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    const statusCode = error.statusCode || (error.isAuthError ? 401 : 500);
     return errorResponse(res, {
       message: error.message || 'Error processing AI request',
-      statusCode: 500
+      statusCode
     });
   }
 });
@@ -87,10 +89,14 @@ app.post('/api/v1/ai/rag/query', async (req: Request, res: Response) => {
   }
 
   try {
-    // Only permit demo fixtures if explicitly requested (e.g. in development/tests)
+    const jwtToken = req.headers.authorization;
+    const identity = await resolveAuthIdentity(jwtToken);
+
+    // Permission-aware document filtering based on verified user role
     const retrieval = await retrieveRelevantDocuments(query, {
       topK: typeof topK === 'number' ? topK : 3,
       category: typeof category === 'string' ? category : undefined,
+      userRole: identity.role,
       includeDemoFixtures: Boolean(includeDemoFixtures)
     });
 
@@ -114,9 +120,10 @@ app.post('/api/v1/ai/rag/query', async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
+    const statusCode = error.statusCode || (error.isAuthError ? 401 : 500);
     return errorResponse(res, {
       message: error.message || 'Error executing semantic search',
-      statusCode: 500
+      statusCode
     });
   }
 });
