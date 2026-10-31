@@ -151,12 +151,16 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
       const client = new BackendApiClient(testJwt);
       const customerId = process.env.LIVE_TEST_CUSTOMER_ID || 'cst_test_customer';
 
-      // 1. Customer Details (Own scope only)
+      // 1. Authoritative Identity Resolution via /api/v1/auth/me
+      const profile = await client.getAuthMe();
+      expect(profile).toBeDefined();
+
+      // 2. Customer Details (Own scope only)
       const customer = await client.getCustomerDetails(customerId);
       expect(customer).toBeDefined();
       expect(customer.id).toBe(customerId);
 
-      // 2. Customer Subscriptions (Own scope only)
+      // 3. Customer Subscriptions (Own scope only)
       const subscriptions = await client.getCustomerSubscriptions(customerId);
       expect(subscriptions.items).toBeDefined();
       subscriptions.items.forEach((sub) => {
@@ -164,16 +168,31 @@ describe('Live AI Service Startup & Backend Endpoint Preparation [Task 3 & 4]', 
         expect(sub.customerId).toBe(customerId);
       });
 
-      // 3. Customer Invoices (Own scope only)
+      // 4. Customer Invoices (Own scope only)
       const invoices = await client.getCustomerInvoices(customerId);
       expect(invoices.items).toBeDefined();
       invoices.items.forEach((inv) => {
         expect(inv.customerId).toBe(customerId);
       });
 
-      // 4. Customer Payments (Own scope only)
+      // 5. Customer Payments (Own scope only)
       const payments = await client.getCustomerPayments(customerId);
       expect(payments.items).toBeDefined();
+
+      // 6. Customer Billing Summary
+      const summary = await client.getCustomerBillingSummary(customerId);
+      expect(summary).toBeDefined();
+      expect(summary.customerId).toBe(customerId);
+
+      // 7. Global Analytics Authorization (Admin vs Restricted)
+      const adminJwt = process.env.LIVE_TEST_ADMIN_JWT;
+      if (adminJwt) {
+        const adminClient = new BackendApiClient(adminJwt);
+        const revenue = await adminClient.getRevenueSummary();
+        expect(revenue).toBeDefined();
+        const overdue = await adminClient.getOverdueInvoices();
+        expect(overdue).toBeDefined();
+      }
     });
   });
 });
