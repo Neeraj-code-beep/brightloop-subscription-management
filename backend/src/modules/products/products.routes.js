@@ -39,8 +39,13 @@ productsRouter.get(
   productsController.getById.bind(productsController)
 );
 
-// PATCH /api/v1/products/:id - Update product
+// PATCH & PUT /api/v1/products/:id - Update product
 productsRouter.patch(
+  '/:id',
+  validateBody(updateProductSchema),
+  productsController.update.bind(productsController)
+);
+productsRouter.put(
   '/:id',
   validateBody(updateProductSchema),
   productsController.update.bind(productsController)
@@ -82,8 +87,13 @@ productsRouter.get(
   productsController.listVariants.bind(productsController)
 );
 
-// PATCH /api/v1/products/:id/variants/:variantId - Update variant
+// PATCH & PUT /api/v1/products/:id/variants/:variantId - Update variant
 productsRouter.patch(
+  '/:id/variants/:variantId',
+  validateBody(updateVariantSchema),
+  productsController.updateVariant.bind(productsController)
+);
+productsRouter.put(
   '/:id/variants/:variantId',
   validateBody(updateVariantSchema),
   productsController.updateVariant.bind(productsController)

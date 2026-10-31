@@ -17,7 +17,7 @@ export const planService = {
   },
 
   async updatePlan(id, data) {
-    const res = await apiClient.put(`/plans/${id}`, data);
+    const res = await apiClient.patch(`/plans/${id}`, data);
     return res.data.data;
   },
 
@@ -28,4 +28,3 @@ export const planService = {
 };
 
 export default planService;
-

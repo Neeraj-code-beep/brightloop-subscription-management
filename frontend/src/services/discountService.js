@@ -21,7 +21,7 @@ export const discountApi = {
   },
 
   async updateDiscount(id, data) {
-    const res = await apiClient.put(`/discounts/${id}`, data);
+    const res = await apiClient.patch(`/discounts/${id}`, data);
     return res.data.data;
   },
 

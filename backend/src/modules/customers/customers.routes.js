@@ -33,8 +33,14 @@ customersRouter.get(
   customersController.getById.bind(customersController)
 );
 
-// Update customer fields (ADMIN, STAFF, CUSTOMER own permitted fields)
+// Update customer fields (ADMIN, STAFF, CUSTOMER own permitted fields) - supports both PATCH and PUT
 customersRouter.patch(
+  '/:id',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.update.bind(customersController)
+);
+customersRouter.put(
   '/:id',
   authenticate,
   authorizeOwnership('customer', 'id'),

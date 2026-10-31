@@ -17,12 +17,17 @@ export const productService = {
   },
 
   async updateProduct(id, data) {
-    const res = await apiClient.put(`/products/${id}`, data);
+    const res = await apiClient.patch(`/products/${id}`, data);
     return res.data.data;
   },
 
-  async deleteProduct(id) {
-    const res = await apiClient.delete(`/products/${id}`);
+  async updateProductStatus(id, isActive) {
+    const res = await apiClient.patch(`/products/${id}/status`, { isActive });
+    return res.data.data;
+  },
+
+  async calculatePrice(id, variantIds = []) {
+    const res = await apiClient.post(`/products/${id}/calculate-price`, { variantIds });
     return res.data.data;
   },
 
@@ -32,10 +37,14 @@ export const productService = {
   },
 
   async updateVariant(productId, variantId, data) {
-    const res = await apiClient.put(`/products/${productId}/variants/${variantId}`, data);
+    const res = await apiClient.patch(`/products/${productId}/variants/${variantId}`, data);
+    return res.data.data;
+  },
+
+  async updateVariantStatus(productId, variantId, isActive) {
+    const res = await apiClient.patch(`/products/${productId}/variants/${variantId}/status`, { isActive });
     return res.data.data;
   },
 };
 
 export default productService;
-

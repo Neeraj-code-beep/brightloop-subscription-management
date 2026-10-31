@@ -60,22 +60,38 @@ subscriptionsRouter.patch(
   subscriptionsController.updateSubscriptionStatus
 );
 
-// POST /api/v1/subscriptions/:id/pause - Pause active subscription (ADMIN, STAFF)
+// POST & PATCH /api/v1/subscriptions/:id/pause - Pause active subscription (ADMIN, STAFF)
 subscriptionsRouter.post(
   '/:id/pause',
   authorize('ADMIN', 'STAFF'),
   subscriptionsController.pauseSubscription
 );
+subscriptionsRouter.patch(
+  '/:id/pause',
+  authorize('ADMIN', 'STAFF'),
+  subscriptionsController.pauseSubscription
+);
 
-// POST /api/v1/subscriptions/:id/resume - Resume paused subscription (ADMIN, STAFF)
+// POST & PATCH /api/v1/subscriptions/:id/resume - Resume paused subscription (ADMIN, STAFF)
 subscriptionsRouter.post(
   '/:id/resume',
   authorize('ADMIN', 'STAFF'),
   subscriptionsController.resumeSubscription
 );
+subscriptionsRouter.patch(
+  '/:id/resume',
+  authorize('ADMIN', 'STAFF'),
+  subscriptionsController.resumeSubscription
+);
 
-// POST /api/v1/subscriptions/:id/cancel - Cancel subscription (ADMIN, STAFF)
+// POST & PATCH /api/v1/subscriptions/:id/cancel - Cancel subscription (ADMIN, STAFF)
 subscriptionsRouter.post(
+  '/:id/cancel',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(cancelSubscriptionSchema),
+  subscriptionsController.cancelSubscription
+);
+subscriptionsRouter.patch(
   '/:id/cancel',
   authorize('ADMIN', 'STAFF'),
   validateBody(cancelSubscriptionSchema),

@@ -16,8 +16,18 @@ export const quotationService = {
     return res.data.data;
   },
 
+  async updateQuotation(id, data) {
+    const res = await apiClient.patch(`/quotations/${id}`, data);
+    return res.data.data;
+  },
+
   async updateQuotationStatus(id, status) {
     const res = await apiClient.patch(`/quotations/${id}/status`, { status });
+    return res.data.data;
+  },
+
+  async sendQuotation(id) {
+    const res = await apiClient.post(`/quotations/${id}/send`);
     return res.data.data;
   },
 
@@ -28,4 +38,3 @@ export const quotationService = {
 };
 
 export default quotationService;
-

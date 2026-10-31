@@ -34,8 +34,13 @@ plansRouter.get(
   plansController.getPlanById
 );
 
-// PATCH /api/v1/plans/:id - Update plan
+// PATCH & PUT /api/v1/plans/:id - Update plan
 plansRouter.patch(
+  '/:id',
+  validateBody(updatePlanSchema),
+  plansController.updatePlan
+);
+plansRouter.put(
   '/:id',
   validateBody(updatePlanSchema),
   plansController.updatePlan

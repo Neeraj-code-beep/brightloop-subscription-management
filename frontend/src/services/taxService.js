@@ -20,7 +20,7 @@ export const taxApi = {
   },
 
   async updateTax(id, data) {
-    const res = await apiClient.put(`/taxes/${id}`, data);
+    const res = await apiClient.patch(`/taxes/${id}`, data);
     return res.data.data;
   },
 
@@ -35,12 +35,12 @@ export function createEmptyTaxRuleDraft() {
 }
 
 function isBlank(value) {
-  return value.trim() === '';
+  return typeof value === 'string' && value.trim() === '';
 }
 
 export function validateTaxRuleDraft(draft, existingRules = []) {
   const errors = {};
-  const name = draft.name.trim();
+  const name = draft.name ? draft.name.trim() : '';
   const rate = Number(draft.rate);
 
   if (!name) {
@@ -71,7 +71,7 @@ export function buildTaxRuleRecord(draft, existingRules = []) {
     name: draft.name.trim(),
     rate: Number(draft.rate),
     status: draft.status,
-    description: draft.description.trim(),
+    description: draft.description ? draft.description.trim() : '',
   };
 }
 

@@ -29,7 +29,14 @@ taxesRouter.get(
   taxesController.getTaxById.bind(taxesController)
 );
 
+// PATCH & PUT /api/v1/taxes/:id - Update tax rule
 taxesRouter.patch(
+  '/:id',
+  authorize('ADMIN'),
+  validateBody(updateTaxSchema),
+  taxesController.updateTax.bind(taxesController)
+);
+taxesRouter.put(
   '/:id',
   authorize('ADMIN'),
   validateBody(updateTaxSchema),

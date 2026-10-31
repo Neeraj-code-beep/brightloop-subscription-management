@@ -1,3 +1,4 @@
+import React, { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import RoleGuard from '../components/shared/RoleGuard.jsx'
 import { ADMIN_AND_STAFF, ALL_NAV_ITEMS } from '../constants/navigation.js'
@@ -6,30 +7,32 @@ import useAuth from '../hooks/useAuth.js'
 import useRole from '../hooks/useRole.js'
 import AppLayout from '../layouts/AppLayout.jsx'
 import ShellLayout from '../layouts/ShellLayout.jsx'
-import ComingSoonPage from '../pages/ComingSoonPage.jsx'
-import NotFoundPage from '../pages/NotFoundPage.jsx'
-import LoginPage from '../pages/auth/LoginPage.jsx'
-import RegisterPage from '../pages/auth/RegisterPage.jsx'
-import CustomerDetailPage from '../pages/admin/CustomerDetailPage.jsx'
-import CustomersPage from '../pages/admin/CustomersPage.jsx'
-import DashboardPage from '../pages/admin/DashboardPage.jsx'
-import DiscountsPage from '../pages/admin/DiscountsPage.jsx'
-import InvoiceDetailPage from '../pages/admin/InvoiceDetailPage.jsx'
-import InvoicesPage from '../pages/admin/InvoicesPage.jsx'
-import SubscriptionDetailPage from '../pages/admin/SubscriptionDetailPage.jsx'
-import SubscriptionsPage from '../pages/admin/SubscriptionsPage.jsx'
-import CustomerAccountPage from '../pages/customer/CustomerAccountPage.jsx'
-import CustomerDashboardPage from '../pages/customer/CustomerDashboardPage.jsx'
-import CustomerInvoicesPage from '../pages/customer/CustomerInvoicesPage.jsx'
-import CustomerPaymentsPage from '../pages/customer/CustomerPaymentsPage.jsx'
-import CustomerSubscriptionPage from '../pages/customer/CustomerSubscriptionPage.jsx'
-import PaymentsPage from '../pages/admin/PaymentsPage.jsx'
-import ProductPlanDetailPage from '../pages/admin/ProductPlanDetailPage.jsx'
-import ProductsPlansPage from '../pages/admin/ProductsPlansPage.jsx'
-import TaxesPage from '../pages/admin/TaxesPage.jsx'
-import ReportsPage from '../pages/admin/ReportsPage.jsx'
-import SettingsPage from '../pages/admin/SettingsPage.jsx'
-import StaffPage from '../pages/admin/StaffPage.jsx'
+
+// Route-level code splitting
+const LoginPage = lazy(() => import('../pages/auth/LoginPage.jsx'))
+const RegisterPage = lazy(() => import('../pages/auth/RegisterPage.jsx'))
+const ComingSoonPage = lazy(() => import('../pages/ComingSoonPage.jsx'))
+const NotFoundPage = lazy(() => import('../pages/NotFoundPage.jsx'))
+const CustomerDetailPage = lazy(() => import('../pages/admin/CustomerDetailPage.jsx'))
+const CustomersPage = lazy(() => import('../pages/admin/CustomersPage.jsx'))
+const DashboardPage = lazy(() => import('../pages/admin/DashboardPage.jsx'))
+const DiscountsPage = lazy(() => import('../pages/admin/DiscountsPage.jsx'))
+const InvoiceDetailPage = lazy(() => import('../pages/admin/InvoiceDetailPage.jsx'))
+const InvoicesPage = lazy(() => import('../pages/admin/InvoicesPage.jsx'))
+const SubscriptionDetailPage = lazy(() => import('../pages/admin/SubscriptionDetailPage.jsx'))
+const SubscriptionsPage = lazy(() => import('../pages/admin/SubscriptionsPage.jsx'))
+const CustomerAccountPage = lazy(() => import('../pages/customer/CustomerAccountPage.jsx'))
+const CustomerDashboardPage = lazy(() => import('../pages/customer/CustomerDashboardPage.jsx'))
+const CustomerInvoicesPage = lazy(() => import('../pages/customer/CustomerInvoicesPage.jsx'))
+const CustomerPaymentsPage = lazy(() => import('../pages/customer/CustomerPaymentsPage.jsx'))
+const CustomerSubscriptionPage = lazy(() => import('../pages/customer/CustomerSubscriptionPage.jsx'))
+const PaymentsPage = lazy(() => import('../pages/admin/PaymentsPage.jsx'))
+const ProductPlanDetailPage = lazy(() => import('../pages/admin/ProductPlanDetailPage.jsx'))
+const ProductsPlansPage = lazy(() => import('../pages/admin/ProductsPlansPage.jsx'))
+const TaxesPage = lazy(() => import('../pages/admin/TaxesPage.jsx'))
+const ReportsPage = lazy(() => import('../pages/admin/ReportsPage.jsx'))
+const SettingsPage = lazy(() => import('../pages/admin/SettingsPage.jsx'))
+const StaffPage = lazy(() => import('../pages/admin/StaffPage.jsx'))
 
 const IMPLEMENTED_PAGES = {
   '/dashboard': DashboardPage,
@@ -48,6 +51,17 @@ const IMPLEMENTED_PAGES = {
   '/customer/invoices': CustomerInvoicesPage,
   '/customer/payments': CustomerPaymentsPage,
   '/customer/account': CustomerAccountPage,
+}
+
+function PageSuspenseFallback() {
+  return (
+    <div className="flex min-h-[50vh] w-full items-center justify-center">
+      <div className="flex flex-col items-center gap-2">
+        <div className="h-7 w-7 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="text-xs text-foreground-muted">Loading view...</span>
+      </div>
+    </div>
+  )
 }
 
 function HomeRedirect() {
@@ -71,72 +85,74 @@ function HomeRedirect() {
 
 export default function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+    <Suspense fallback={<PageSuspenseFallback />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
-      <Route index element={<HomeRedirect />} />
+        <Route index element={<HomeRedirect />} />
 
-      <Route element={<ShellLayout />}>
-        <Route
-          path="subscriptions/:id"
-          element={
-            <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
-              <SubscriptionDetailPage />
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="products-plans/:id"
-          element={
-            <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
-              <ProductPlanDetailPage />
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="customers/:id"
-          element={
-            <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
-              <CustomerDetailPage />
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="invoices/:id"
-          element={
-            <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
-              <InvoiceDetailPage />
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="customer/invoices/:id"
-          element={
-            <RoleGuard allowedRoles={[ROLES.CUSTOMER]}>
-              <InvoiceDetailPage />
-            </RoleGuard>
-          }
-        />
-        {ALL_NAV_ITEMS.map(({ label, path, roles }) => {
-          const Page = IMPLEMENTED_PAGES[path]
-          return (
-            <Route
-              key={path}
-              path={path.slice(1)}
-              element={
-                <RoleGuard allowedRoles={roles}>
-                  {Page ? <Page /> : <ComingSoonPage title={label} />}
-                </RoleGuard>
-              }
-            />
-          )
-        })}
-      </Route>
+        <Route element={<ShellLayout />}>
+          <Route
+            path="subscriptions/:id"
+            element={
+              <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
+                <SubscriptionDetailPage />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="products-plans/:id"
+            element={
+              <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
+                <ProductPlanDetailPage />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="customers/:id"
+            element={
+              <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
+                <CustomerDetailPage />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="invoices/:id"
+            element={
+              <RoleGuard allowedRoles={ADMIN_AND_STAFF}>
+                <InvoiceDetailPage />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="customer/invoices/:id"
+            element={
+              <RoleGuard allowedRoles={[ROLES.CUSTOMER]}>
+                <InvoiceDetailPage />
+              </RoleGuard>
+            }
+          />
+          {ALL_NAV_ITEMS.map(({ label, path, roles }) => {
+            const Page = IMPLEMENTED_PAGES[path]
+            return (
+              <Route
+                key={path}
+                path={path.slice(1)}
+                element={
+                  <RoleGuard allowedRoles={roles}>
+                    {Page ? <Page /> : <ComingSoonPage title={label} />}
+                  </RoleGuard>
+                }
+              />
+            )
+          })}
+        </Route>
 
-      <Route element={<AppLayout />}>
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+        <Route element={<AppLayout />}>
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </Suspense>
   )
 }

@@ -17,7 +17,7 @@ export const customerService = {
   },
 
   async updateCustomer(id, data) {
-    const res = await apiClient.put(`/customers/${id}`, data);
+    const res = await apiClient.patch(`/customers/${id}`, data);
     return res.data.data;
   },
 
@@ -48,4 +48,3 @@ export const customerService = {
 };
 
 export default customerService;
-

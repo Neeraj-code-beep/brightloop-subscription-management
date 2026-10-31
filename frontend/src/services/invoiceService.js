@@ -20,17 +20,22 @@ export const invoiceApi = {
   },
 
   async updateInvoice(id, data) {
-    const res = await apiClient.put(`/invoices/${id}`, data);
+    const res = await apiClient.patch(`/invoices/${id}`, data);
     return res.data.data;
   },
 
   async issueInvoice(id) {
-    const res = await apiClient.patch(`/invoices/${id}/issue`);
+    const res = await apiClient.post(`/invoices/${id}/issue`);
     return res.data.data;
   },
 
   async voidInvoice(id, reason = '') {
-    const res = await apiClient.patch(`/invoices/${id}/void`, { reason });
+    const res = await apiClient.post(`/invoices/${id}/void`, { reason });
+    return res.data.data;
+  },
+
+  async getPayments(id) {
+    const res = await apiClient.get(`/invoices/${id}/payments`);
     return res.data.data;
   },
 };

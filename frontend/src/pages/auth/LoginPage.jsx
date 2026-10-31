@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import Logo from '../../components/shared/Logo.jsx'
 import Button from '../../components/ui/Button.jsx'
 import Input from '../../components/ui/Input.jsx'
-import { ROLE_DEFINITIONS, ROLES } from '../../constants/roles.js'
+import { ROLE_DEFINITIONS } from '../../constants/roles.js'
 import useAuth from '../../hooks/useAuth.js'
 
 export default function LoginPage() {
@@ -111,36 +111,38 @@ export default function LoginPage() {
           </Link>
         </div>
 
-        <div className="mt-6 border-t border-border pt-4">
-          <p className="text-center text-xs font-medium text-foreground-subtle">
-            Quick credentials:
-          </p>
-          <div className="mt-2 flex flex-wrap justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('admin@brightloop.io', 'Admin@123456')}
-              className="rounded-md border border-border bg-surface-muted px-2.5 py-1 text-xs text-foreground-muted hover:bg-surface-hover hover:text-foreground"
-            >
-              Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('billing@brightloop.io', 'Staff@123456')}
-              className="rounded-md border border-border bg-surface-muted px-2.5 py-1 text-xs text-foreground-muted hover:bg-surface-hover hover:text-foreground"
-            >
-              Staff
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('arun.kumar@vertex.io', 'Customer@123456')}
-              className="rounded-md border border-border bg-surface-muted px-2.5 py-1 text-xs text-foreground-muted hover:bg-surface-hover hover:text-foreground"
-            >
-              Customer
-            </button>
+        {/* Development only credentials prefill; hidden in production */}
+        {import.meta.env.DEV && (
+          <div className="mt-6 border-t border-border pt-4">
+            <p className="text-center text-xs font-medium text-foreground-subtle">
+              Quick credentials (Dev only):
+            </p>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickLogin('admin@brightloop.io', 'Admin@123456')}
+                className="rounded-md border border-border bg-surface-muted px-2.5 py-1 text-xs text-foreground-muted hover:bg-surface-hover hover:text-foreground"
+              >
+                Admin
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickLogin('billing@brightloop.io', 'Staff@123456')}
+                className="rounded-md border border-border bg-surface-muted px-2.5 py-1 text-xs text-foreground-muted hover:bg-surface-hover hover:text-foreground"
+              >
+                Staff
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickLogin('arun.kumar@vertex.io', 'Customer@123456')}
+                className="rounded-md border border-border bg-surface-muted px-2.5 py-1 text-xs text-foreground-muted hover:bg-surface-hover hover:text-foreground"
+              >
+                Customer
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
 }
-

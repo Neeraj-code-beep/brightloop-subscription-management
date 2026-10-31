@@ -46,16 +46,28 @@ invoicesRouter.patch(
   invoicesController.updateInvoice.bind(invoicesController)
 );
 
-// POST /api/v1/invoices/:id/issue - Issue draft invoice (ADMIN, STAFF)
+// POST & PATCH /api/v1/invoices/:id/issue - Issue draft invoice (ADMIN, STAFF)
 invoicesRouter.post(
   '/:id/issue',
   authorize('ADMIN', 'STAFF'),
   validateBody(issueInvoiceSchema),
   invoicesController.issueInvoice.bind(invoicesController)
 );
+invoicesRouter.patch(
+  '/:id/issue',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(issueInvoiceSchema),
+  invoicesController.issueInvoice.bind(invoicesController)
+);
 
-// POST /api/v1/invoices/:id/void - Void invoice (ADMIN, STAFF)
+// POST & PATCH /api/v1/invoices/:id/void - Void invoice (ADMIN, STAFF)
 invoicesRouter.post(
+  '/:id/void',
+  authorize('ADMIN', 'STAFF'),
+  validateBody(voidInvoiceSchema),
+  invoicesController.voidInvoice.bind(invoicesController)
+);
+invoicesRouter.patch(
   '/:id/void',
   authorize('ADMIN', 'STAFF'),
   validateBody(voidInvoiceSchema),

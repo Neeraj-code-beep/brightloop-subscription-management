@@ -42,7 +42,14 @@ discountsRouter.get(
   discountsController.getDiscountById.bind(discountsController)
 );
 
+// PATCH & PUT /api/v1/discounts/:id - Update discount
 discountsRouter.patch(
+  '/:id',
+  authorize('ADMIN'),
+  validateBody(updateDiscountSchema),
+  discountsController.updateDiscount.bind(discountsController)
+);
+discountsRouter.put(
   '/:id',
   authorize('ADMIN'),
   validateBody(updateDiscountSchema),

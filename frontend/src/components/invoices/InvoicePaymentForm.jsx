@@ -14,6 +14,7 @@ function FieldError({ message }) {
 }
 
 export default function InvoicePaymentForm({ invoiceNumber, customerName, amountOutstanding, onSubmit, onCancel }) {
+  const [submitting, setSubmitting] = useState(false)
   const [values, setValues] = useState({
     amount: String(amountOutstanding),
     date: REFERENCE_DATE,
@@ -27,8 +28,10 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
     setErrors((previous) => ({ ...previous, [name]: undefined }))
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
+    if (submitting) return
+
     const amount = Number(values.amount)
     const nextErrors = {}
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -41,7 +44,14 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
 
-    onSubmit({ date: values.date, method: values.method, amount, reference: values.reference.trim() })
+    setSubmitting(true)
+    try {
+      await onSubmit({ date: values.date, method: values.method, amount, reference: values.reference.trim() })
+    } catch (err) {
+      setErrors({ form: err?.message || 'Failed to record payment' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -62,6 +72,12 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
           </div>
         </dl>
 
+        {errors.form && (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400">
+            {errors.form}
+          </div>
+        )}
+
         <div className="grid gap-5 sm:grid-cols-2">
           <label className="space-y-1.5">
             <span className="text-sm font-medium text-foreground">Amount received</span>
@@ -74,6 +90,7 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
               value={values.amount}
               onChange={(event) => updateField('amount', event.target.value)}
               aria-invalid={Boolean(errors.amount)}
+              disabled={submitting}
             />
             <FieldError message={errors.amount} />
           </label>
@@ -85,6 +102,7 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
               value={values.date}
               onChange={(event) => updateField('date', event.target.value)}
               aria-invalid={Boolean(errors.date)}
+              disabled={submitting}
             />
             <FieldError message={errors.date} />
           </label>
@@ -95,6 +113,7 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
               value={values.method}
               onChange={(event) => updateField('method', event.target.value)}
               className={selectClass}
+              disabled={submitting}
             >
               {PAYMENT_METHODS.map((method) => (
                 <option key={method} value={method}>
@@ -112,17 +131,18 @@ export default function InvoicePaymentForm({ invoiceNumber, customerName, amount
               value={values.reference}
               onChange={(event) => updateField('reference', event.target.value)}
               placeholder="e.g. UTR or cheque number"
+              disabled={submitting}
             />
           </label>
         </div>
       </div>
 
       <div className="flex flex-col-reverse gap-3 border-t border-border bg-surface-muted px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-        <button type="button" onClick={onCancel} className={buttonVariants({ variant: 'secondary' })}>
+        <button type="button" onClick={onCancel} disabled={submitting} className={buttonVariants({ variant: 'secondary' })}>
           Cancel
         </button>
-        <button type="submit" className={buttonVariants({ variant: 'primary' })}>
-          Record payment
+        <button type="submit" disabled={submitting} className={buttonVariants({ variant: 'primary' })}>
+          {submitting ? 'Recording...' : 'Record payment'}
         </button>
       </div>
     </form>
