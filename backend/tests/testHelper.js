@@ -1254,6 +1254,13 @@ export function createMockPrisma() {
         if (where.OR) {
           list = list.filter(p => {
             return where.OR.some(cond => {
+              if (cond.customerId) {
+                return p.customerId === cond.customerId;
+              }
+              if (cond.invoice?.customerId) {
+                const inv = state.invoices.find(i => i.id === p.invoiceId);
+                return inv && inv.customerId === cond.invoice.customerId;
+              }
               if (cond.paymentReference?.contains) {
                 return p.paymentReference?.toLowerCase().includes(String(cond.paymentReference.contains).toLowerCase());
               }

@@ -93,13 +93,19 @@ export class AuthController {
     }
   }
 
-  async me(req, res) {
-    return successResponse(res, {
-      message: 'Current user profile retrieved successfully',
-      data: {
-        user: req.user
-      }
-    });
+  async me(req, res, next) {
+    try {
+      const userProfile = await authService.getCurrentUser(req.user.id);
+      return successResponse(res, {
+        message: 'Current user profile retrieved successfully',
+        data: {
+          ...userProfile,
+          user: userProfile
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
   }
 }
 

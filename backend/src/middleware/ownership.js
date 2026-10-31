@@ -16,13 +16,18 @@ export function authorizeOwnership(resourceType, paramKey = 'id') {
       });
     }
 
-    // ADMINs bypass ownership checks across all resources
-    if (req.user.role === 'ADMIN') {
-      return next();
-    }
-
-    // STAFF have operational access to customer, invoice, subscription, and payment records
-    if (req.user.role === 'STAFF') {
+    // ADMINs and STAFF have elevated operational access across all resources
+    if (req.user.role === 'ADMIN' || req.user.role === 'STAFF') {
+      if (req.params[paramKey] === 'me') {
+        if (req.user.customerId) {
+          req.params[paramKey] = req.user.customerId;
+        } else {
+          return errorResponse(res, {
+            message: 'No customer profile linked to this administrative account. Please provide a specific customer ID.',
+            statusCode: 400
+          });
+        }
+      }
       return next();
     }
 
@@ -47,7 +52,12 @@ export function authorizeOwnership(resourceType, paramKey = 'id') {
       try {
         switch (resourceType) {
           case 'customer': {
-            if (resourceId !== customerId) {
+            let targetId = resourceId;
+            if (targetId === 'me') {
+              targetId = customerId;
+              req.params[paramKey] = customerId;
+            }
+            if (targetId !== customerId) {
               return errorResponse(res, {
                 message: 'Access denied: you do not have permission to access another customer profile',
                 statusCode: 403

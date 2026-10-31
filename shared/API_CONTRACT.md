@@ -147,7 +147,19 @@ Endpoints returning collections support cursor or page-based pagination using th
 - `POST /api/v1/auth/logout` - Invalidate current session & revoke refresh token.
 - `POST /api/v1/auth/forgot-password` - Request cryptographically secure password reset token (returns generic message to prevent email enumeration).
 - `POST /api/v1/auth/reset-password` - Reset password with valid token. Automatically revokes existing sessions for security.
-- `GET  /api/v1/auth/me` - Retrieve current authenticated user profile & permissions.
+- `GET  /api/v1/auth/me` - Retrieve current authenticated user profile & identity contract.
+  - Access: Authenticated users (`ADMIN`, `STAFF`, `CUSTOMER`)
+  - Headers: `Authorization: Bearer <accessToken>` (required)
+  - Returns authenticated user details:
+    - `id`: `string` (User ID)
+    - `role`: `'ADMIN' | 'STAFF' | 'CUSTOMER'`
+    - `customerId`: `string | null` (Resolves to linked Customer ID for `CUSTOMER` role; `null` for unlinked `ADMIN`/`STAFF`)
+    - `name`: `string`
+    - `email`: `string`
+    - `isActive`: `boolean`
+    - `customer`: `object | null` (Contains `id`, `customerCode`, `companyName`, `firstName`, `lastName`, `customerType`, `currency`, `status`, `isActive` when linked)
+    - `createdAt`: `string` (ISO timestamp)
+    - `user`: `object` (Nested user object containing safe profile fields for frontend backwards-compatibility)
 
 ### 5.2 User & Staff Management (`/api/v1/users`)
 - `POST  /api/v1/users/staff` - Admin only: Provision new `STAFF` account (name, email, password).
@@ -204,18 +216,54 @@ Endpoints returning collections support cursor or page-based pagination using th
   - Access: `ADMIN` only (`STAFF` and `CUSTOMER` forbidden)
   - Body: `{ "isActive": boolean }`
   - Response: Updated safe `Customer` object with synchronized `isActive` and `status` (`ACTIVE` / `SUSPENDED`)
+- `GET    /api/v1/customers/:id/billing-summary` - Comprehensive customer billing summary and financial snapshot.
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only via `:id` or `/me`)
+  - Notes: For `CUSTOMER` role, `:id` can be passed as `'me'` or their own `customerId`. Cross-customer access attempts strictly return `403 Forbidden`.
+  - Response structure:
+    ```json
+    {
+      "customerId": "cst_...",
+      "customerCode": "CUST-XXXXXX",
+      "customerName": "Acme Corp",
+      "currency": "USD",
+      "subscriptions": {
+        "activeCount": 2,
+        "pendingCount": 0,
+        "cancelledCount": 1,
+        "totalCount": 3,
+        "currentMrr": "350.00",
+        "nextBillingDate": "2026-11-15T00:00:00.000Z"
+      },
+      "invoices": {
+        "totalCount": 5,
+        "paidCount": 3,
+        "openCount": 1,
+        "overdueCount": 1,
+        "totalInvoicedAmount": "1750.00",
+        "totalPaidAmount": "1250.00",
+        "totalOutstandingBalance": "500.00"
+      },
+      "payments": {
+        "totalCount": 4,
+        "successfulCount": 4,
+        "totalRefundedAmount": "0.00",
+        "lastPaymentDate": "2026-10-28T14:30:00.000Z"
+      },
+      "generatedAt": "2026-10-31T12:00:00.000Z"
+    }
+    ```
 - `GET    /api/v1/customers/:id/subscriptions` - List customer's paginated subscriptions.
-  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only)
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only via `:id` or `/me`)
   - Query parameters: `page`, `limit`
-  - Response: `{ items: SubscriptionSummary[], pagination }`
+  - Response: `{ items: SubscriptionSummary[], pagination }` (includes `subscriptionNumber`, `status`, `recurringPrice`, `billingCycle`, `currentPeriodStart`, `currentPeriodEnd`, `plan`)
 - `GET    /api/v1/customers/:id/invoices` - List customer's paginated invoices.
-  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only)
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only via `:id` or `/me`)
   - Query parameters: `page`, `limit`
-  - Response: `{ items: InvoiceSummary[], pagination }`
+  - Response: `{ items: InvoiceSummary[], pagination }` (includes `invoiceNumber`, `status`, `totalAmount`, `amountPaid`, `amountDue`, `dueDate`, `paidAt`)
 - `GET    /api/v1/customers/:id/payments` - List customer's paginated payments.
-  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only)
+  - Access: `ADMIN`, `STAFF`, `CUSTOMER` (own record only via `:id` or `/me`)
   - Query parameters: `page`, `limit`
-  - Response: `{ items: PaymentSummary[], pagination }`
+  - Response: `{ items: PaymentSummary[], pagination }` (includes `paymentReference`, `amount`, `refundedAmount`, `currency`, `status`, `paymentMethod`, `paidAt`, `invoice`)
 
 ### 5.4 Products & Variants (`/api/v1/products`)
 - `POST   /api/v1/products` - Create a product.

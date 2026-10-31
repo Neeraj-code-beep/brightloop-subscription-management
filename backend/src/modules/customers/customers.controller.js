@@ -171,6 +171,21 @@ export class CustomersController {
       next(error);
     }
   }
+  /**
+   * GET /api/v1/customers/:id/billing-summary
+   * Access: ADMIN, STAFF, CUSTOMER (own record)
+   */
+  async getBillingSummary(req, res, next) {
+    try {
+      const result = await customersService.getCustomerBillingSummary(req.params.id);
+      return successResponse(res, {
+        message: 'Customer billing summary retrieved successfully',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const customersController = new CustomersController();

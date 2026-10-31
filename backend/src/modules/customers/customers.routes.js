@@ -50,6 +50,14 @@ customersRouter.patch(
   customersController.updateStatus.bind(customersController)
 );
 
+// Get customer billing summary (ADMIN, STAFF, CUSTOMER own record)
+customersRouter.get(
+  '/:id/billing-summary',
+  authenticate,
+  authorizeOwnership('customer', 'id'),
+  customersController.getBillingSummary.bind(customersController)
+);
+
 // Get customer subscriptions (ADMIN, STAFF, CUSTOMER own records)
 customersRouter.get(
   '/:id/subscriptions',

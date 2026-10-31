@@ -330,6 +330,57 @@ export class AuthService {
       message: 'Password has been successfully reset. Please log in with your new credentials.'
     };
   }
+
+  /**
+   * Get current authenticated user profile
+   */
+  async getCurrentUser(userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        customer: {
+          select: {
+            id: true,
+            customerCode: true,
+            companyName: true,
+            firstName: true,
+            lastName: true,
+            customerType: true,
+            currency: true,
+            status: true,
+            isActive: true
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      const error = new Error('Authenticated user no longer exists');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    const customerId = user.customer?.id || null;
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+      customerId,
+      customer: user.customer || null,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+  }
 }
 
 export const authService = new AuthService();

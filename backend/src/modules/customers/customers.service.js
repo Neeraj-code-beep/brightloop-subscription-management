@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { normalizeToMrr, toDecimalString } from '../analytics/analytics.service.js';
 import { prisma } from '../../utils/prisma.js';
 import { hashPassword } from '../../utils/crypto.js';
 
@@ -282,7 +284,7 @@ export class CustomersService {
   /**
    * Get paginated subscription summaries for a customer.
    */
-  async getCustomerSubscriptions(customerId, { page = 1, limit = 20 }) {
+  async getCustomerSubscriptions(customerId, { page = 1, limit = 20 } = {}) {
     const skip = (page - 1) * limit;
 
     const [items, totalItems] = await Promise.all([
@@ -293,20 +295,45 @@ export class CustomersService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          subscriptionNumber: true,
           status: true,
+          planId: true,
+          billingCycle: true,
+          recurringPrice: true,
+          setupFee: true,
+          currency: true,
+          startDate: true,
           currentPeriodStart: true,
           currentPeriodEnd: true,
-          currency: true,
+          nextBillingDate: true,
           cancelAtPeriodEnd: true,
-          createdAt: true
+          canceledAt: true,
+          cancellationReason: true,
+          createdAt: true,
+          updatedAt: true,
+          plan: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              price: true,
+              billingCycle: true
+            }
+          }
         }
       }),
       prisma.subscription.count({ where: { customerId } })
     ]);
 
+    const formattedItems = items.map(sub => ({
+      ...sub,
+      recurringPrice: toDecimalString(sub.recurringPrice),
+      setupFee: toDecimalString(sub.setupFee)
+    }));
+
     const totalPages = Math.ceil(totalItems / limit) || 1;
     return {
-      items,
+      items: formattedItems,
       pagination: { page, limit, totalItems, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
     };
   }
@@ -314,7 +341,7 @@ export class CustomersService {
   /**
    * Get paginated invoice summaries for a customer.
    */
-  async getCustomerInvoices(customerId, { page = 1, limit = 20 }) {
+  async getCustomerInvoices(customerId, { page = 1, limit = 20 } = {}) {
     const skip = (page - 1) * limit;
 
     const [items, totalItems] = await Promise.all([
@@ -327,33 +354,54 @@ export class CustomersService {
           id: true,
           invoiceNumber: true,
           status: true,
+          totalAmount: true,
+          amountPaid: true,
+          amountDue: true,
+          subtotal: true,
+          taxAmount: true,
+          discountAmount: true,
           totalInCents: true,
           amountDueInCents: true,
           currency: true,
+          issueDate: true,
           dueDate: true,
           paidAt: true,
-          createdAt: true
+          subscriptionId: true,
+          createdAt: true,
+          updatedAt: true
         }
       }),
       prisma.invoice.count({ where: { customerId } })
     ]);
 
+    const formattedItems = items.map(inv => ({
+      ...inv,
+      totalAmount: toDecimalString(inv.totalAmount),
+      amountPaid: toDecimalString(inv.amountPaid),
+      amountDue: toDecimalString(inv.amountDue),
+      subtotal: toDecimalString(inv.subtotal),
+      taxAmount: toDecimalString(inv.taxAmount),
+      discountAmount: toDecimalString(inv.discountAmount)
+    }));
+
     const totalPages = Math.ceil(totalItems / limit) || 1;
     return {
-      items,
+      items: formattedItems,
       pagination: { page, limit, totalItems, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
     };
   }
 
   /**
    * Get paginated payment summaries for a customer.
-   * Payments are linked to the customer through invoices.
    */
-  async getCustomerPayments(customerId, { page = 1, limit = 20 }) {
+  async getCustomerPayments(customerId, { page = 1, limit = 20 } = {}) {
     const skip = (page - 1) * limit;
 
     const paymentWhere = {
-      invoice: { customerId }
+      OR: [
+        { customerId },
+        { invoice: { customerId } }
+      ]
     };
 
     const [items, totalItems] = await Promise.all([
@@ -364,16 +412,23 @@ export class CustomersService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          paymentReference: true,
+          amount: true,
+          refundedAmount: true,
           amountInCents: true,
           currency: true,
           status: true,
           paymentMethod: true,
+          provider: true,
+          providerTransactionId: true,
           paidAt: true,
           createdAt: true,
+          invoiceId: true,
           invoice: {
             select: {
               id: true,
-              invoiceNumber: true
+              invoiceNumber: true,
+              status: true
             }
           }
         }
@@ -381,10 +436,187 @@ export class CustomersService {
       prisma.payment.count({ where: paymentWhere })
     ]);
 
+    const formattedItems = items.map(p => ({
+      ...p,
+      amount: toDecimalString(p.amount),
+      refundedAmount: toDecimalString(p.refundedAmount)
+    }));
+
     const totalPages = Math.ceil(totalItems / limit) || 1;
     return {
-      items,
+      items: formattedItems,
       pagination: { page, limit, totalItems, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 }
+    };
+  }
+
+  /**
+   * Get billing summary for a customer.
+   */
+  async getCustomerBillingSummary(customerId) {
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        customerCode: true,
+        firstName: true,
+        lastName: true,
+        companyName: true,
+        email: true,
+        currency: true,
+        status: true,
+        isActive: true
+      }
+    });
+
+    if (!customer) {
+      const error = new Error(`Customer not found with ID '${customerId}'.`);
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const [subscriptions, invoices, payments] = await Promise.all([
+      prisma.subscription.findMany({
+        where: { customerId },
+        select: {
+          id: true,
+          status: true,
+          recurringPrice: true,
+          billingCycle: true,
+          nextBillingDate: true,
+          createdAt: true
+        }
+      }),
+      prisma.invoice.findMany({
+        where: { customerId, status: { notIn: ['DRAFT', 'VOID'] } },
+        select: {
+          id: true,
+          status: true,
+          totalAmount: true,
+          amountPaid: true,
+          amountDue: true,
+          dueDate: true,
+          createdAt: true
+        }
+      }),
+      prisma.payment.findMany({
+        where: {
+          OR: [
+            { customerId },
+            { invoice: { customerId } }
+          ]
+        },
+        select: {
+          id: true,
+          status: true,
+          amount: true,
+          refundedAmount: true,
+          paidAt: true,
+          createdAt: true
+        }
+      })
+    ]);
+
+    let activeSubscriptionsCount = 0;
+    let pendingSubscriptionsCount = 0;
+    let cancelledSubscriptionsCount = 0;
+    let currentMrr = new Prisma.Decimal(0);
+    let nextBillingDate = null;
+    const now = new Date();
+
+    for (const sub of subscriptions) {
+      const s = String(sub.status).toUpperCase();
+      if (s === 'ACTIVE') {
+        activeSubscriptionsCount++;
+        currentMrr = currentMrr.plus(normalizeToMrr(sub.recurringPrice, sub.billingCycle));
+        if (sub.nextBillingDate) {
+          const nDate = new Date(sub.nextBillingDate);
+          if (nDate >= now && (!nextBillingDate || nDate < nextBillingDate)) {
+            nextBillingDate = nDate;
+          }
+        }
+      } else if (s === 'TRIALING' || s === 'PENDING') {
+        pendingSubscriptionsCount++;
+      } else if (s === 'CANCELED') {
+        cancelledSubscriptionsCount++;
+      }
+    }
+
+    let totalInvoicedAmount = new Prisma.Decimal(0);
+    let totalPaidAmount = new Prisma.Decimal(0);
+    let totalOutstandingBalance = new Prisma.Decimal(0);
+    let paidInvoicesCount = 0;
+    let openInvoicesCount = 0;
+    let overdueInvoicesCount = 0;
+
+    for (const inv of invoices) {
+      const invTotal = new Prisma.Decimal(inv.totalAmount || 0);
+      const invPaid = new Prisma.Decimal(inv.amountPaid || 0);
+      const invDue = new Prisma.Decimal(inv.amountDue || 0);
+
+      totalInvoicedAmount = totalInvoicedAmount.plus(invTotal);
+      totalPaidAmount = totalPaidAmount.plus(invPaid);
+      totalOutstandingBalance = totalOutstandingBalance.plus(invDue);
+
+      const s = String(inv.status).toUpperCase();
+      if (s === 'PAID') {
+        paidInvoicesCount++;
+      } else if (s === 'OVERDUE') {
+        overdueInvoicesCount++;
+      } else if (s === 'ISSUED' || s === 'OPEN' || s === 'PARTIALLY_PAID') {
+        openInvoicesCount++;
+        if (inv.dueDate && new Date(inv.dueDate) < now && invDue.greaterThan(0)) {
+          overdueInvoicesCount++;
+        }
+      }
+    }
+
+    let successfulPaymentsCount = 0;
+    let totalRefundedAmount = new Prisma.Decimal(0);
+    let lastPaymentDate = null;
+
+    for (const pay of payments) {
+      const s = String(pay.status).toUpperCase();
+      if (s === 'SUCCEEDED' || s === 'PARTIALLY_REFUNDED' || s === 'REFUNDED') {
+        successfulPaymentsCount++;
+        totalRefundedAmount = totalRefundedAmount.plus(new Prisma.Decimal(pay.refundedAmount || 0));
+        const pDate = pay.paidAt ? new Date(pay.paidAt) : new Date(pay.createdAt);
+        if (!lastPaymentDate || pDate > lastPaymentDate) {
+          lastPaymentDate = pDate;
+        }
+      }
+    }
+
+    const customerName = customer.companyName || `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || customer.email;
+
+    return {
+      customerId: customer.id,
+      customerCode: customer.customerCode,
+      customerName,
+      currency: customer.currency || 'USD',
+      subscriptions: {
+        activeCount: activeSubscriptionsCount,
+        pendingCount: pendingSubscriptionsCount,
+        cancelledCount: cancelledSubscriptionsCount,
+        totalCount: subscriptions.length,
+        currentMrr: currentMrr.toFixed(2),
+        nextBillingDate: nextBillingDate ? nextBillingDate.toISOString() : null
+      },
+      invoices: {
+        totalCount: invoices.length,
+        paidCount: paidInvoicesCount,
+        openCount: openInvoicesCount,
+        overdueCount: overdueInvoicesCount,
+        totalInvoicedAmount: totalInvoicedAmount.toFixed(2),
+        totalPaidAmount: totalPaidAmount.toFixed(2),
+        totalOutstandingBalance: totalOutstandingBalance.toFixed(2)
+      },
+      payments: {
+        totalCount: payments.length,
+        successfulCount: successfulPaymentsCount,
+        totalRefundedAmount: totalRefundedAmount.toFixed(2),
+        lastPaymentDate: lastPaymentDate ? lastPaymentDate.toISOString() : null
+      },
+      generatedAt: new Date().toISOString()
     };
   }
 }
