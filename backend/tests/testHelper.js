@@ -21,7 +21,8 @@ export function createMockPrisma() {
     quotationItems: [],
     subscriptionItems: [],
     taxes: [],
-    discounts: []
+    discounts: [],
+    discountRedemptions: []
   };
 
   const projectSelect = (item, select) => {
@@ -745,25 +746,90 @@ export function createMockPrisma() {
 
     tax: {
       findUnique: async ({ where }) => {
-        return state.taxes.find(t => t.id === where.id) || null;
+        let t = null;
+        if (where.id) t = state.taxes.find(x => x.id === where.id);
+        else if (where.code) t = state.taxes.find(x => x.code === where.code);
+        return t ? { ...t } : null;
       },
-      findMany: async ({ where = {} }) => {
+      findFirst: async ({ where }) => {
+        let list = [...state.taxes];
+        if (where?.code) list = list.filter(t => t.code === where.code);
+        if (where?.NOT?.id) list = list.filter(t => t.id !== where.NOT.id);
+        return list[0] ? { ...list[0] } : null;
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, cursor, orderBy, select }) => {
         let list = [...state.taxes];
         if (where.isActive !== undefined) list = list.filter(t => t.isActive === where.isActive);
-        return list;
+        if (where.type) list = list.filter(t => t.type === where.type);
+        if (where.jurisdiction?.contains) {
+          list = list.filter(t => t.jurisdiction && t.jurisdiction.toLowerCase().includes(String(where.jurisdiction.contains).toLowerCase()));
+        }
+        if (where.OR) {
+          list = list.filter(t => {
+            return where.OR.some(cond => {
+              if (cond.name?.contains && t.name) return t.name.toLowerCase().includes(String(cond.name.contains).toLowerCase());
+              if (cond.code?.contains && t.code) return t.code.toLowerCase().includes(String(cond.code.contains).toLowerCase());
+              if (cond.jurisdiction?.contains && t.jurisdiction) return t.jurisdiction.toLowerCase().includes(String(cond.jurisdiction.contains).toLowerCase());
+              return false;
+            });
+          });
+        }
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(t => t.id === cursor.id);
+          if (idx !== -1) startIndex = idx + (skip || 0);
+        } else if (skip) {
+          startIndex = skip;
+        }
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(t => projectSelect({ ...t }, select));
       },
-      create: async ({ data }) => {
+      count: async ({ where = {} } = {}) => {
+        let list = [...state.taxes];
+        if (where.isActive !== undefined) list = list.filter(t => t.isActive === where.isActive);
+        if (where.type) list = list.filter(t => t.type === where.type);
+        if (where.OR) {
+          list = list.filter(t => {
+            return where.OR.some(cond => {
+              if (cond.name?.contains && t.name) return t.name.toLowerCase().includes(String(cond.name.contains).toLowerCase());
+              if (cond.code?.contains && t.code) return t.code.toLowerCase().includes(String(cond.code.contains).toLowerCase());
+              if (cond.jurisdiction?.contains && t.jurisdiction) return t.jurisdiction.toLowerCase().includes(String(cond.jurisdiction.contains).toLowerCase());
+              if (cond.description?.contains && t.description) return t.description.toLowerCase().includes(String(cond.description.contains).toLowerCase());
+              return false;
+            });
+          });
+        }
+        return list.length;
+      },
+      create: async ({ data, select }) => {
+        const id = `tax_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const rate = data.rate !== undefined ? data.rate : data.percentage;
         const t = {
-          id: `tax_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          id,
           name: data.name,
-          percentage: data.percentage,
+          code: data.code || `TAX-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          rate: rate,
+          percentage: data.percentage !== undefined ? data.percentage : rate,
+          type: data.type || 'SALES_TAX',
           jurisdiction: data.jurisdiction || 'Default',
+          description: data.description || null,
+          validFrom: data.validFrom || null,
+          validTo: data.validTo || null,
+          isCompound: Boolean(data.isCompound),
+          priority: data.priority !== undefined ? data.priority : 0,
           isActive: data.isActive !== undefined ? data.isActive : true,
           createdAt: new Date(),
           updatedAt: new Date()
         };
         state.taxes.push(t);
-        return t;
+        return projectSelect({ ...t }, select);
+      },
+      update: async ({ where, data, select }) => {
+        const idx = state.taxes.findIndex(t => t.id === where.id);
+        if (idx === -1) throw new Error('Tax not found');
+        state.taxes[idx] = { ...state.taxes[idx], ...data, updatedAt: new Date() };
+        return projectSelect({ ...state.taxes[idx] }, select);
       }
     },
 
@@ -772,30 +838,106 @@ export function createMockPrisma() {
         let d = null;
         if (where.id) d = state.discounts.find(x => x.id === where.id);
         else if (where.code) d = state.discounts.find(x => x.code === where.code);
-        return d || null;
+        return d ? { ...d } : null;
       },
-      findMany: async ({ where = {} }) => {
+      findFirst: async ({ where }) => {
+        let list = [...state.discounts];
+        if (where?.code) list = list.filter(d => d.code === where.code);
+        if (where?.NOT?.id) list = list.filter(d => d.id !== where.NOT.id);
+        return list[0] ? { ...list[0] } : null;
+      },
+      findMany: async ({ where = {}, skip = 0, take = 20, cursor, orderBy, select }) => {
         let list = [...state.discounts];
         if (where.isActive !== undefined) list = list.filter(d => d.isActive === where.isActive);
-        return list;
+        if (where.type) list = list.filter(d => d.type === where.type);
+        if (where.OR) {
+          list = list.filter(d => {
+            return where.OR.some(cond => {
+              if (cond.code?.contains && d.code) return d.code.toLowerCase().includes(String(cond.code.contains).toLowerCase());
+              if (cond.name?.contains && d.name) return d.name.toLowerCase().includes(String(cond.name.contains).toLowerCase());
+              return false;
+            });
+          });
+        }
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(d => d.id === cursor.id);
+          if (idx !== -1) startIndex = idx + (skip || 0);
+        } else if (skip) {
+          startIndex = skip;
+        }
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(d => projectSelect({ ...d }, select));
       },
-      create: async ({ data }) => {
+      count: async ({ where = {} } = {}) => {
+        let list = [...state.discounts];
+        if (where.isActive !== undefined) list = list.filter(d => d.isActive === where.isActive);
+        if (where.type) list = list.filter(d => d.type === where.type);
+        if (where.OR) {
+          list = list.filter(d => {
+            return where.OR.some(cond => {
+              if (cond.code?.contains && d.code) return d.code.toLowerCase().includes(String(cond.code.contains).toLowerCase());
+              if (cond.name?.contains && d.name) return d.name.toLowerCase().includes(String(cond.name.contains).toLowerCase());
+              if (cond.description?.contains && d.description) return d.description.toLowerCase().includes(String(cond.description.contains).toLowerCase());
+              return false;
+            });
+          });
+        }
+        return list.length;
+      },
+      create: async ({ data, select }) => {
+        const id = `disc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const d = {
-          id: `disc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          id,
           code: data.code,
+          name: data.name || null,
+          description: data.description || null,
           type: data.type || 'PERCENTAGE',
           value: data.value,
-          currency: data.currency || null,
+          currency: data.currency || 'INR',
+          minPurchaseAmount: data.minPurchaseAmount || null,
+          maxDiscountAmount: data.maxDiscountAmount || null,
           validFrom: data.validFrom || new Date(),
           validTo: data.validTo || null,
           maxRedemptions: data.maxRedemptions || null,
+          maxRedemptionsPerCustomer: data.maxRedemptionsPerCustomer !== undefined ? data.maxRedemptionsPerCustomer : 1,
           timesRedeemed: 0,
           isActive: data.isActive !== undefined ? data.isActive : true,
           createdAt: new Date(),
           updatedAt: new Date()
         };
         state.discounts.push(d);
-        return d;
+        return projectSelect({ ...d }, select);
+      },
+      update: async ({ where, data, select }) => {
+        const idx = state.discounts.findIndex(d => d.id === where.id);
+        if (idx === -1) throw new Error('Discount not found');
+        let updateData = { ...data };
+        if (data.timesRedeemed && typeof data.timesRedeemed === 'object' && data.timesRedeemed.increment) {
+          updateData.timesRedeemed = (state.discounts[idx].timesRedeemed || 0) + data.timesRedeemed.increment;
+        }
+        state.discounts[idx] = { ...state.discounts[idx], ...updateData, updatedAt: new Date() };
+        return projectSelect({ ...state.discounts[idx] }, select);
+      }
+    },
+
+    discountRedemption: {
+      count: async ({ where = {} } = {}) => {
+        let list = state.discountRedemptions || [];
+        if (where.discountId) list = list.filter(r => r.discountId === where.discountId);
+        if (where.customerId) list = list.filter(r => r.customerId === where.customerId);
+        return list.length;
+      },
+      create: async ({ data }) => {
+        if (!state.discountRedemptions) state.discountRedemptions = [];
+        const r = {
+          id: `dr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          ...data,
+          redeemedAt: new Date()
+        };
+        state.discountRedemptions.push(r);
+        return r;
       }
     },
 

@@ -207,12 +207,18 @@ export class QuotationsService {
         }
 
         if (discount.type === 'PERCENTAGE') {
-          // basis points: value = 1000 means 10%
-          const rate = new Prisma.Decimal(discount.value).div(10000);
+          const valDec = new Prisma.Decimal(discount.value);
+          const rate = valDec.gt(100) ? valDec.div(10000) : valDec.div(100);
           itemDiscount = itemSubtotal.mul(rate);
         } else {
           // Fixed amount
           itemDiscount = new Prisma.Decimal(discount.value);
+        }
+
+        // Cap at maxDiscountAmount if configured
+        if (discount.maxDiscountAmount) {
+          const maxDisc = new Prisma.Decimal(discount.maxDiscountAmount);
+          itemDiscount = Prisma.Decimal.min(itemDiscount, maxDisc);
         }
 
         // Cap discount at subtotal
@@ -235,8 +241,9 @@ export class QuotationsService {
           throw error;
         }
 
-        taxRate = new Prisma.Decimal(tax.percentage);
-        const taxableAmount = itemSubtotal.minus(itemDiscount);
+        const rateVal = tax.rate !== undefined && tax.rate !== null ? tax.rate : tax.percentage;
+        taxRate = new Prisma.Decimal(rateVal);
+        const taxableAmount = Prisma.Decimal.max(0, itemSubtotal.minus(itemDiscount));
         itemTax = taxableAmount.mul(taxRate).div(100);
       }
 

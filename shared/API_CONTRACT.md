@@ -493,12 +493,41 @@ Endpoints returning collections support cursor or page-based pagination using th
 - `GET    /api/v1/payments/reconciliation/unmatched` - List unmatched/orphaned payments and invoice balance mismatches (ADMIN, STAFF).
 - `POST   /api/v1/payments/reconciliation/run` - Execute reconciliation sweep and repair drifted invoice balances atomically (ADMIN only).
 
-### 5.10 Analytics & Dashboard (`/api/v1/analytics`)
+### 5.10 Tax Management (`/api/v1/taxes`)
+- `POST   /api/v1/taxes` - Create a tax rule (ADMIN).
+  - Body: `{ "name": string, "code"?: string, "rate"?: number|string, "percentage"?: number|string, "type"?: "VAT"|"GST"|"SALES_TAX"|"CUSTOMS"|"EXCISE"|"OTHER", "jurisdiction"?: string, "description"?: string, "validFrom"?: string, "validTo"?: string, "isCompound"?: boolean, "priority"?: number, "isActive"?: boolean }`
+  - Validates rate between 0.00 and 100.00%. Ensures unique uppercase code. Rejects `validTo < validFrom`.
+- `GET    /api/v1/taxes` - List tax rules with dual pagination and filtering (ADMIN, STAFF, CUSTOMER).
+  - Query parameters: `page`, `limit`, `cursor`, `mode`, `isActive`, `type`, `jurisdiction`, `search`, `sortBy`, `sortOrder`.
+- `GET    /api/v1/taxes/:id` - Fetch single tax rule details (ADMIN, STAFF, CUSTOMER).
+- `PATCH  /api/v1/taxes/:id` - Update tax rule attributes (ADMIN).
+  - Body: partial fields of tax rule (`name`, `code`, `rate`, `percentage`, `type`, `jurisdiction`, `description`, `validFrom`, `validTo`, `isCompound`, `priority`, `isActive`).
+- `PATCH  /api/v1/taxes/:id/status` - Toggle tax active status (ADMIN).
+  - Body: `{ "isActive": boolean }`
+
+### 5.11 Discount Management & Coupon Validation Engine (`/api/v1/discounts`)
+- `POST   /api/v1/discounts` - Create a discount / coupon rule (ADMIN).
+  - Body: `{ "code": string, "name"?: string, "description"?: string, "type": "PERCENTAGE"|"FIXED_AMOUNT", "value": number|string, "currency"?: string, "minPurchaseAmount"?: number|string, "maxDiscountAmount"?: number|string, "validFrom"?: string, "validTo"?: string, "maxRedemptions"?: number, "maxRedemptionsPerCustomer"?: number, "isActive"?: boolean }`
+  - Enforces uppercase unique code. Percentage discount value must be between 0.01 and 100.00 (or basis points). Fixed amount must be positive.
+- `GET    /api/v1/discounts` - List discounts with dual pagination and filtering (ADMIN, STAFF).
+  - Query parameters: `page`, `limit`, `cursor`, `mode`, `isActive`, `type`, `search`, `sortBy`, `sortOrder`.
+- `POST   /api/v1/discounts/validate` - Validate coupon eligibility against cart / quotation items (ADMIN, STAFF, CUSTOMER).
+  - Body: `{ "code": string, "purchaseAmount": number|string, "customerId"?: string, "currency"?: string }`
+  - Evaluates coupon active status, effective date range (`validFrom` / `validTo`), total redemptions vs `maxRedemptions`, per-customer redemption limit vs `DiscountRedemption` records, currency match, and `minPurchaseAmount` threshold.
+  - Returns `{ isValid: true, discountAmount: string, discount: object, calculatedSubtotalAfterDiscount: string }`.
+  - Caps discount at `maxDiscountAmount` and ensures discount does not exceed `purchaseAmount`.
+- `GET    /api/v1/discounts/:id` - Fetch discount details (ADMIN, STAFF).
+- `PATCH  /api/v1/discounts/:id` - Update discount attributes (ADMIN).
+  - Body: partial fields of discount.
+- `PATCH  /api/v1/discounts/:id/status` - Toggle discount active status (ADMIN).
+  - Body: `{ "isActive": boolean }`
+
+### 5.12 Analytics & Dashboard (`/api/v1/analytics`)
 - `GET    /api/v1/analytics/dashboard` - Executive metrics: MRR, ARR, active subscriptions, churn rate, outstanding dues.
 - `GET    /api/v1/analytics/revenue` - Historical revenue series by month/quarter.
 - `GET    /api/v1/analytics/overdue` - Overdue invoice Aging report (0-30, 31-60, 61-90, 90+ days).
 
-### 5.11 AI Service Endpoints (`/api/v1/ai`)
+### 5.13 AI Service Endpoints (`/api/v1/ai`)
 - `POST   /api/v1/ai/chat` - Natural language query to billing assistant via Gemini & MCP tools.
   - Body: `{ "prompt": string, "conversationId"?: string, "context"?: object }`
 - `POST   /api/v1/ai/rag/query` - Semantic retrieval of company policies, product sheets, and billing guidelines.

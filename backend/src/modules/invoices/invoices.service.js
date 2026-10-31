@@ -239,6 +239,24 @@ export class InvoicesService {
 
       // Calculate discount
       let itemDiscount = new Prisma.Decimal(item.discountAmount || 0);
+      if (item.discountId) {
+        const discount = await this.prisma.discount.findUnique({
+          where: { id: item.discountId }
+        });
+        if (discount && discount.isActive) {
+          const valDec = new Prisma.Decimal(discount.value);
+          if (discount.type === 'PERCENTAGE') {
+            const rate = valDec.gt(100) ? valDec.div(10000) : valDec.div(100);
+            itemDiscount = lineSubtotal.mul(rate);
+          } else {
+            itemDiscount = valDec;
+          }
+          if (discount.maxDiscountAmount) {
+            const maxDisc = new Prisma.Decimal(discount.maxDiscountAmount);
+            itemDiscount = Prisma.Decimal.min(itemDiscount, maxDisc);
+          }
+        }
+      }
       if (itemDiscount.isNegative()) {
         itemDiscount = new Prisma.Decimal(0);
       }
@@ -253,7 +271,8 @@ export class InvoicesService {
           where: { id: item.taxId }
         });
         if (tax && tax.isActive) {
-          taxRate = new Prisma.Decimal(tax.percentage);
+          const rateVal = tax.rate !== undefined && tax.rate !== null ? tax.rate : tax.percentage;
+          taxRate = new Prisma.Decimal(rateVal);
         }
       }
 

@@ -1,12 +1,44 @@
 import { Router } from 'express';
-import { successResponse } from '../../utils/response.js';
+import { taxesController } from './taxes.controller.js';
+import { authenticate } from '../../middleware/auth.js';
+import { authorize } from '../../middleware/authorize.js';
+import { validateBody } from '../../middleware/validate.js';
+import { createTaxSchema, updateTaxSchema, updateTaxStatusSchema } from './taxes.validation.js';
 
 export const taxesRouter = Router();
 
-taxesRouter.get('/', (req, res) => {
-  return successResponse(res, {
-    message: 'Taxes module scaffolded',
-    data: { items: [] }
-  });
-});
+// Require authentication for all tax endpoints
+taxesRouter.use(authenticate);
 
+taxesRouter.post(
+  '/',
+  authorize('ADMIN'),
+  validateBody(createTaxSchema),
+  taxesController.createTax.bind(taxesController)
+);
+
+taxesRouter.get(
+  '/',
+  authorize('ADMIN', 'STAFF', 'CUSTOMER'),
+  taxesController.listTaxes.bind(taxesController)
+);
+
+taxesRouter.get(
+  '/:id',
+  authorize('ADMIN', 'STAFF', 'CUSTOMER'),
+  taxesController.getTaxById.bind(taxesController)
+);
+
+taxesRouter.patch(
+  '/:id',
+  authorize('ADMIN'),
+  validateBody(updateTaxSchema),
+  taxesController.updateTax.bind(taxesController)
+);
+
+taxesRouter.patch(
+  '/:id/status',
+  authorize('ADMIN'),
+  validateBody(updateTaxStatusSchema),
+  taxesController.updateTaxStatus.bind(taxesController)
+);

@@ -325,27 +325,57 @@ Generated billing statements, recurring renewal charges, and manual fee invoices
 
 ---
 
-### 2.7 Tax & Discount
-Calculation entities for regional taxation and promotion rules.
+### 2.7 Tax, Discount & Redemption Management
+Calculation entities for regional taxation, compound priority evaluation, coupon promotions, and audit trails.
 
 - **Tax**
   - `id`: `String` (PK)
-  - `name`: `String` (e.g. "Standard VAT", "State Sales Tax")
-  - `percentage`: `Decimal` (Precision: 5, Scale: 2, e.g. `18.00` for 18%)
-  - `jurisdiction`: `String` (e.g. "US-CA", "EU-FR", "IN")
+  - `name`: `String` (e.g. "Goods & Services Tax 18%")
+  - `code`: `String?` (Unique uppercase code, e.g. "GST_18")
+  - `rate`: `Decimal(5, 2)` (Default: `0.00`, e.g. `18.00` for 18%)
+  - `percentage`: `Decimal(5, 2)` (Default: `0.00`, synonym/backward compatibility)
+  - `type`: `Enum TaxType` (`VAT`, `GST`, `SALES_TAX`, `CUSTOMS`, `EXCISE`, `OTHER`, Default: `SALES_TAX`)
+  - `jurisdiction`: `String?` (e.g. "US-CA", "EU-FR", "IN-KA")
+  - `description`: `String?`
+  - `validFrom`: `DateTime?`
+  - `validTo`: `DateTime?`
+  - `isCompound`: `Boolean` (Default: `false` - indicates tax calculated on subtotal + previous taxes)
+  - `priority`: `Int` (Default: `0` - lower number calculates first)
   - `isActive`: `Boolean` (Default: `true`)
+  - `createdAt`: `DateTime` (Default: `now()`)
+  - `updatedAt`: `DateTime`
+  - Indexes: `@@index([code])`, `@@index([isActive])`, `@@index([createdAt, id])`
 
 - **Discount**
   - `id`: `String` (PK)
-  - `code`: `String` (Unique, e.g. `ANNUAL20`)
-  - `type`: `Enum` (`PERCENTAGE`, `FIXED_AMOUNT`)
-  - `value`: `Int` (Percentage in basis points e.g. 2000 = 20%, or fixed cents e.g. 5000 = $50.00)
-  - `currency`: `String?` (Required for fixed amount discounts)
-  - `validFrom`: `DateTime`
+  - `code`: `String` (Unique uppercase, e.g. `SUMMER20`)
+  - `name`: `String?`
+  - `description`: `String?`
+  - `type`: `Enum DiscountType` (`PERCENTAGE`, `FIXED_AMOUNT`)
+  - `value`: `Decimal(12, 2)` (Percentage e.g. `20.00` for 20%, or fixed amount e.g. `50.00`)
+  - `valueInBasisPoints`: `Int?` (Basis points for legacy/high-precision percentages)
+  - `currency`: `String` (Default: `INR`)
+  - `minPurchaseAmount`: `Decimal(12, 2)?` (Minimum subtotal threshold to qualify)
+  - `maxDiscountAmount`: `Decimal(12, 2)?` (Cap/ceiling for percentage discounts)
+  - `validFrom`: `DateTime` (Default: `now()`)
   - `validTo`: `DateTime?`
-  - `maxRedemptions`: `Int?`
+  - `maxRedemptions`: `Int?` (Global usage limit across all customers)
+  - `maxRedemptionsPerCustomer`: `Int` (Default: `1` - usage limit per customer)
   - `timesRedeemed`: `Int` (Default: `0`)
   - `isActive`: `Boolean` (Default: `true`)
+  - `createdAt`: `DateTime` (Default: `now()`)
+  - `updatedAt`: `DateTime`
+  - Indexes: `@@index([code])`, `@@index([isActive])`, `@@index([createdAt, id])`
+
+- **DiscountRedemption**
+  - `id`: `String` (PK)
+  - `discountId`: `String` (FK -> `Discount.id`, Cascade on Delete)
+  - `customerId`: `String?` (FK -> `Customer.id`, SetNull on Delete)
+  - `quotationId`: `String?`
+  - `invoiceId`: `String?`
+  - `amount`: `Decimal(12, 2)` (Snapshot of discount applied)
+  - `redeemedAt`: `DateTime` (Default: `now()`)
+  - Indexes: `@@index([discountId, customerId])`, `@@index([customerId])`, `@@index([redeemedAt])`
 
 ---
 
