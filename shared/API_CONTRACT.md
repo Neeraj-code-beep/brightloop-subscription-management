@@ -217,17 +217,63 @@ Endpoints returning collections support cursor or page-based pagination using th
   - Query parameters: `page`, `limit`
   - Response: `{ items: PaymentSummary[], pagination }`
 
-### 5.3 Products & Plans (`/api/v1/products`, `/api/v1/plans`)
-- `GET    /api/v1/products` - List products & associated variants.
-- `POST   /api/v1/products` - Create product.
-- `GET    /api/v1/products/:id` - Product details with pricing tiers.
-- `PATCH  /api/v1/products/:id` - Update product details.
-- `GET    /api/v1/plans` - List subscription plans (monthly, yearly, custom).
-- `POST   /api/v1/plans` - Create subscription plan.
-- `GET    /api/v1/plans/:id` - Fetch plan details.
-- `PATCH  /api/v1/plans/:id` - Update plan status/pricing.
+### 5.4 Products & Variants (`/api/v1/products`)
+- `POST   /api/v1/products` - Create a product.
+  - Access: `ADMIN`, `STAFF`
+  - Body:
+    - `name`: `string` (required, 1-200 chars)
+    - `slug`: `string?` (optional, auto-generated from name if omitted)
+    - `description`: `string?`
+    - `type`: `'SOFTWARE' | 'SERVICE' | 'SUBSCRIPTION' | 'ADD_ON'` (default `'SOFTWARE'`)
+    - `basePrice`: `number | string` (non-negative Decimal, e.g. `5000.00`, required)
+    - `costPrice`: `number | string | null` (optional non-negative Decimal)
+    - `isActive`: `boolean?` (default `true`)
+  - Response: Created product object
+- `GET    /api/v1/products` - List products with dual pagination (offset or cursor mode), search by name, filtering by `type` and `isActive`, and sorting.
+  - Access: `ADMIN`, `STAFF`
+  - Query parameters: `page`, `limit`, `cursor`, `search`, `type`, `isActive`, `sortBy`, `sortOrder`
+  - Response: `{ items: Product[], pagination }`
+- `GET    /api/v1/products/:id` - Fetch single product details with all active/inactive variants.
+  - Access: `ADMIN`, `STAFF`
+  - Response: Full product object with `variants: ProductVariant[]`
+- `PATCH  /api/v1/products/:id` - Update product fields.
+  - Access: `ADMIN`, `STAFF`
+  - Body: Allowlisted fields (`name`, `slug`, `description`, `type`, `basePrice`, `costPrice`, `isActive`)
+  - Response: Updated product object
+- `PATCH  /api/v1/products/:id/status` - Activate or deactivate product.
+  - Access: `ADMIN`, `STAFF`
+  - Body: `{ "isActive": boolean }`
+  - Response: Updated product object
+- `POST   /api/v1/products/:id/calculate-price` (alias `/price`) - Calculate final price on backend.
+  - Access: `ADMIN`, `STAFF`
+  - Formula: `Final Price = Base Product Price + Selected Active Variant Prices`
+  - Body: `{ "variantIds": string[] }`
+  - Validates: All variant IDs belong to the specified product, are active, and contains no duplicates.
+  - Response: `{ productId, productName, productActive, basePrice, selectedVariants, finalPrice }`
+- `POST   /api/v1/products/:id/variants` - Create variant for product.
+  - Access: `ADMIN`, `STAFF`
+  - Body:
+    - `name`: `string` (required, unique per product)
+    - `sku`: `string?` (unique, auto-generated if omitted)
+    - `description`: `string?`
+    - `additionalPrice`: `number | string` (non-negative Decimal, default `0.00`)
+    - `unit`: `string?` (default `'seat'`)
+    - `isActive`: `boolean?` (default `true`)
+  - Response: Created `ProductVariant`
+- `GET    /api/v1/products/:id/variants` - List variants for product with dual pagination.
+  - Access: `ADMIN`, `STAFF`
+  - Query parameters: `page`, `limit`, `cursor`, `search`, `isActive`, `sortBy`, `sortOrder`
+  - Response: `{ items: ProductVariant[], pagination }`
+- `PATCH  /api/v1/products/:id/variants/:variantId` - Update variant fields.
+  - Access: `ADMIN`, `STAFF`
+  - Validates: Variant belongs to requested product.
+  - Response: Updated `ProductVariant`
+- `PATCH  /api/v1/products/:id/variants/:variantId/status` - Activate or deactivate variant.
+  - Access: `ADMIN`, `STAFF`
+  - Body: `{ "isActive": boolean }`
+  - Response: Updated `ProductVariant`
 
-### 5.4 Subscriptions & Quotations (`/api/v1/subscriptions`, `/api/v1/quotations`)
+### 5.5 Subscriptions & Quotations (`/api/v1/subscriptions`, `/api/v1/quotations`)
 - `GET    /api/v1/quotations` - List quotations.
 - `POST   /api/v1/quotations` - Create quotation for customer.
 - `POST   /api/v1/quotations/:id/convert` - Convert accepted quotation into active subscription.

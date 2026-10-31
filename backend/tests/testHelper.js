@@ -9,7 +9,9 @@ export function createMockPrisma() {
     customers: [],
     invoices: [],
     subscriptions: [],
-    payments: []
+    payments: [],
+    products: [],
+    productVariants: []
   };
 
   const projectSelect = (item, select) => {
@@ -27,6 +29,24 @@ export function createMockPrisma() {
       }
     }
     return projected;
+  };
+
+  const sortArray = (list, orderBy) => {
+    if (!orderBy) return list;
+    const orderList = Array.isArray(orderBy) ? orderBy : [orderBy];
+    return [...list].sort((a, b) => {
+      for (const rule of orderList) {
+        const field = Object.keys(rule)[0];
+        const dir = rule[field] === 'asc' ? 1 : -1;
+        let valA = a[field];
+        let valB = b[field];
+        if (valA instanceof Date) valA = valA.getTime();
+        if (valB instanceof Date) valB = valB.getTime();
+        if (valA > valB) return dir;
+        if (valA < valB) return -dir;
+      }
+      return 0;
+    });
   };
 
   const mock = {
@@ -164,15 +184,8 @@ export function createMockPrisma() {
           });
         }
 
-        const sortField = Object.keys(orderBy)[0] || 'createdAt';
-        const sortOrder = orderBy[sortField] === 'asc' ? 1 : -1;
-        list.sort((a, b) => {
-          if (a[sortField] > b[sortField]) return sortOrder;
-          if (a[sortField] < b[sortField]) return -sortOrder;
-          return 0;
-        });
-
-        const paginated = list.slice(skip, skip + take);
+        const sorted = sortArray(list, orderBy);
+        const paginated = sorted.slice(skip, skip + take);
         return paginated.map(item => projectSelect(item, select));
       },
       count: async ({ where = {} }) => {
@@ -422,6 +435,174 @@ export function createMockPrisma() {
         };
         state.payments.push(p);
         return p;
+      }
+    },
+
+    // --- Product & Variant Models ---
+    product: {
+      findUnique: async ({ where, include, select }) => {
+        let p = null;
+        if (where.id) p = state.products.find(x => x.id === where.id);
+        else if (where.slug) p = state.products.find(x => x.slug === where.slug);
+        if (!p) return null;
+        const res = { ...p };
+        if (include?.variants) {
+          let vars = state.productVariants.filter(v => v.productId === p.id);
+          if (include.variants.where?.isActive !== undefined) {
+            vars = vars.filter(v => v.isActive === include.variants.where.isActive);
+          }
+          res.variants = vars.map(v => ({ ...v }));
+        }
+        return projectSelect(res, select);
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
+        let list = [...state.products];
+        if (where.type) list = list.filter(p => p.type === where.type);
+        if (where.isActive !== undefined) list = list.filter(p => p.isActive === where.isActive);
+        if (where.name?.contains) {
+          const search = String(where.name.contains).toLowerCase();
+          list = list.filter(p => p.name.toLowerCase().includes(search));
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(p => p.id === cursor.id);
+          if (idx !== -1) {
+            startIndex = idx + (skip || 0);
+          }
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(p => {
+          const res = { ...p };
+          if (include?.variants) {
+            let vars = state.productVariants.filter(v => v.productId === p.id);
+            if (include.variants.where?.isActive !== undefined) {
+              vars = vars.filter(v => v.isActive === include.variants.where.isActive);
+            }
+            res.variants = vars.map(v => ({ ...v }));
+          }
+          return projectSelect(res, select);
+        });
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.products];
+        if (where.type) list = list.filter(p => p.type === where.type);
+        if (where.isActive !== undefined) list = list.filter(p => p.isActive === where.isActive);
+        if (where.name?.contains) {
+          const search = String(where.name.contains).toLowerCase();
+          list = list.filter(p => p.name.toLowerCase().includes(search));
+        }
+        return list.length;
+      },
+      create: async ({ data, include, select }) => {
+        const id = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newProduct = {
+          id,
+          name: data.name,
+          slug: data.slug,
+          description: data.description || null,
+          type: data.type || 'SOFTWARE',
+          basePrice: data.basePrice,
+          costPrice: data.costPrice || null,
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.products.push(newProduct);
+        const res = { ...newProduct };
+        if (include?.variants) res.variants = [];
+        return projectSelect(res, select);
+      },
+      update: async ({ where, data, include, select }) => {
+        const idx = state.products.findIndex(p => p.id === where.id);
+        if (idx === -1) throw new Error('Product not found');
+        state.products[idx] = { ...state.products[idx], ...data, updatedAt: new Date() };
+        const res = { ...state.products[idx] };
+        if (include?.variants) {
+          res.variants = state.productVariants.filter(v => v.productId === where.id);
+        }
+        return projectSelect(res, select);
+      }
+    },
+
+    productVariant: {
+      findUnique: async ({ where, select }) => {
+        let v = null;
+        if (where.id) v = state.productVariants.find(x => x.id === where.id);
+        else if (where.sku) v = state.productVariants.find(x => x.sku === where.sku);
+        if (!v) return null;
+        return projectSelect(v, select);
+      },
+      findFirst: async ({ where }) => {
+        let list = [...state.productVariants];
+        if (where.productId) list = list.filter(v => v.productId === where.productId);
+        if (where.name?.equals) {
+          const target = String(where.name.equals).toLowerCase();
+          list = list.filter(v => v.name.toLowerCase() === target);
+        }
+        if (where.NOT?.id) {
+          list = list.filter(v => v.id !== where.NOT.id);
+        }
+        return list[0] ? { ...list[0] } : null;
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, select }) => {
+        let list = [...state.productVariants];
+        if (where.productId) list = list.filter(v => v.productId === where.productId);
+        if (where.isActive !== undefined) list = list.filter(v => v.isActive === where.isActive);
+        if (where.id?.in) list = list.filter(v => where.id.in.includes(v.id));
+        if (where.name?.contains) {
+          const search = String(where.name.contains).toLowerCase();
+          list = list.filter(v => v.name.toLowerCase().includes(search));
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(v => v.id === cursor.id);
+          if (idx !== -1) {
+            startIndex = idx + (skip || 0);
+          }
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(v => projectSelect(v, select));
+      },
+      count: async ({ where = {} }) => {
+        let list = [...state.productVariants];
+        if (where.productId) list = list.filter(v => v.productId === where.productId);
+        if (where.isActive !== undefined) list = list.filter(v => v.isActive === where.isActive);
+        if (where.id?.in) list = list.filter(v => where.id.in.includes(v.id));
+        return list.length;
+      },
+      create: async ({ data, select }) => {
+        const id = `var_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const newVariant = {
+          id,
+          productId: data.productId,
+          name: data.name,
+          sku: data.sku,
+          description: data.description || null,
+          additionalPrice: data.additionalPrice,
+          unit: data.unit || 'seat',
+          unitPriceInCents: data.unitPriceInCents || 0,
+          isActive: data.isActive !== undefined ? data.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.productVariants.push(newVariant);
+        return projectSelect(newVariant, select);
+      },
+      update: async ({ where, data, select }) => {
+        const idx = state.productVariants.findIndex(v => v.id === where.id);
+        if (idx === -1) throw new Error('Variant not found');
+        state.productVariants[idx] = { ...state.productVariants[idx], ...data, updatedAt: new Date() };
+        return projectSelect(state.productVariants[idx], select);
       }
     }
   };

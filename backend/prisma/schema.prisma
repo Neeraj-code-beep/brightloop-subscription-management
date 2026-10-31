@@ -31,6 +31,13 @@ enum CustomerType {
   COMPANY
 }
 
+enum ProductType {
+  SOFTWARE
+  SERVICE
+  SUBSCRIPTION
+  ADD_ON
+}
+
 enum BillingInterval {
   MONTHLY
   QUARTERLY
@@ -176,10 +183,18 @@ model Product {
   name        String
   slug        String           @unique
   description String?
+  type        ProductType      @default(SOFTWARE)
+  basePrice   Decimal          @default(0.00) @db.Decimal(12, 2)
+  costPrice   Decimal?         @db.Decimal(12, 2)
   isActive    Boolean          @default(true)
   variants    ProductVariant[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+
+  @@index([name])
+  @@index([type])
+  @@index([isActive])
+  @@index([createdAt, id])
 }
 
 model ProductVariant {
@@ -188,12 +203,18 @@ model ProductVariant {
   product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   name             String
   sku              String   @unique
+  description      String?
   unit             String   @default("seat")
-  unitPriceInCents Int
+  unitPriceInCents Int      @default(0)
+  additionalPrice  Decimal  @default(0.00) @db.Decimal(12, 2)
   isActive         Boolean  @default(true)
   plans            Plan[]
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([productId])
+  @@index([isActive])
+  @@index([createdAt, id])
 }
 
 model Plan {

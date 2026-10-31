@@ -96,23 +96,35 @@ Represents business accounts or individuals who purchase subscriptions.
 ### 2.3 Product, Variant & Plan
 Defines software offerings, add-ons, seats, and recurring billing plans.
 
+- **ProductType**
+  - Enum values: `SOFTWARE`, `SERVICE`, `SUBSCRIPTION`, `ADD_ON`
+
 - **Product**
-  - `id`: `String` (PK)
-  - `name`: `String` (e.g. "Brightloop Analytics Suite")
-  - `slug`: `String` (Unique)
+  - `id`: `String` (PK, CUID)
+  - `name`: `String` (Indexed, e.g. "Brightloop Analytics Suite")
+  - `slug`: `String` (Unique, e.g. "brightloop-analytics")
   - `description`: `String?`
-  - `isActive`: `Boolean` (Default: `true`)
-  - `createdAt`: `DateTime`
+  - `type`: `ProductType` (Default: `SOFTWARE`, Indexed)
+  - `basePrice`: `Decimal(12, 2)` (Base selling price, default: `0.00`)
+  - `costPrice`: `Decimal(12, 2)?` (Optional unit cost price)
+  - `isActive`: `Boolean` (Default: `true`, Indexed)
+  - `createdAt`: `DateTime` (Default: `now()`)
   - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 - **ProductVariant**
-  - `id`: `String` (PK)
-  - `productId`: `String` (FK -> `Product.id`)
-  - `name`: `String` (e.g. "Standard Seat", "Enterprise Add-on", "Storage Block")
-  - `sku`: `String` (Unique)
-  - `unit`: `String` (e.g. "license", "gb", "agent")
-  - `unitPriceInCents`: `Int` (Base catalog unit price in cents)
-  - `isActive`: `Boolean`
+  - `id`: `String` (PK, CUID)
+  - `productId`: `String` (FK -> `Product.id`, Indexed)
+  - `name`: `String` (Unique per product, e.g. "Premium Support")
+  - `sku`: `String` (Unique, e.g. "SKU-ANL-SUPP")
+  - `description`: `String?`
+  - `unit`: `String` (Default: `"seat"`)
+  - `unitPriceInCents`: `Int` (Default: `0`, preserved for Plan relations)
+  - `additionalPrice`: `Decimal(12, 2)` (Additional variant price, default: `0.00`)
+  - `isActive`: `Boolean` (Default: `true`, Indexed)
+  - `createdAt`: `DateTime` (Default: `now()`)
+  - `updatedAt`: `DateTime`
+  - Composite Index: `@@index([createdAt, id])` for deterministic cursor pagination
 
 - **Plan**
   - `id`: `String` (PK)
