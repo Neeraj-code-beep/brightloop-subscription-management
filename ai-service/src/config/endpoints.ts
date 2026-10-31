@@ -33,5 +33,8 @@ export const BACKEND_ENDPOINTS = {
     dashboard: '/analytics/dashboard',
     revenue: '/analytics/revenue',
     overdue: '/analytics/overdue'
+  },
+  auth: {
+    me: '/auth/me'
   }
 } as const;

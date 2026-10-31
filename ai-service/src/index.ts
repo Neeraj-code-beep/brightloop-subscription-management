@@ -4,6 +4,7 @@ import { config } from './config/index.js';
 import { successResponse, errorResponse } from './utils/response.js';
 import { processBillingQuery } from './services/billingAssistant.js';
 import { retrieveRelevantDocuments } from './rag/retriever.js';
+import { resolveAuthIdentity } from './auth/identityResolver.js';
 
 export const app = express();
 
@@ -86,11 +87,15 @@ app.post('/api/v1/ai/rag/query', async (req: Request, res: Response) => {
     });
   }
 
+  const jwtToken = req.headers.authorization;
+  const identity = await resolveAuthIdentity(jwtToken);
+
   try {
-    // Only permit demo fixtures if explicitly requested (e.g. in development/tests)
+    // Permission-aware document filtering based on verified user role
     const retrieval = await retrieveRelevantDocuments(query, {
       topK: typeof topK === 'number' ? topK : 3,
       category: typeof category === 'string' ? category : undefined,
+      userRole: identity.role,
       includeDemoFixtures: Boolean(includeDemoFixtures)
     });
 

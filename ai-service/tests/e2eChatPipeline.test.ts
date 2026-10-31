@@ -220,7 +220,7 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
 
     const res = await request(app)
       .post('/api/v1/ai/chat')
-      .set('Authorization', 'Bearer valid_user_jwt')
+      .set('Authorization', 'Bearer valid_staff_jwt')
       .send({ prompt: 'Show Rahul balance.' });
 
     expect(res.status).toBe(200);
@@ -270,7 +270,7 @@ describe('Complete AI Chat Pipeline & Fallback Orchestration [Task 4 & 5]', () =
 
     const res = await request(app)
       .post('/api/v1/ai/chat')
-      .set('Authorization', 'Bearer valid_user_jwt')
+      .set('Authorization', 'Bearer valid_staff_jwt')
       .send({ prompt: 'Find nonexistent_customer.' });
 
     expect(res.status).toBe(200);

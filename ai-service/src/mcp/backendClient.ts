@@ -479,4 +479,9 @@ export class BackendApiClient {
   async getOverdueInvoices(): Promise<BackendAnalyticsOverdue> {
     return this.request<BackendAnalyticsOverdue>(BACKEND_ENDPOINTS.analytics.overdue);
   }
+
+  // 10. Authoritative Identity Resolution
+  async getAuthMe(): Promise<any> {
+    return this.request<any>(BACKEND_ENDPOINTS.auth.me);
+  }
 }

@@ -207,6 +207,43 @@ export function startMockBackendServer(): Promise<MockServerInstance> {
           );
         }
 
+        // 0. GET /api/v1/auth/me (Authoritative identity endpoint)
+        if (pathname === '/api/v1/auth/me') {
+          if (!authHeader || authHeader === 'Bearer invalid_or_expired_token') {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ success: false, message: 'Invalid or missing authentication token' }));
+          }
+
+          let role = 'CUSTOMER';
+          let customerId: string | undefined = 'cst_rahul_01';
+          let email = 'rahul@sharma.in';
+          const headerLower = authHeader.toLowerCase();
+
+          if (headerLower.includes('admin')) {
+            role = 'ADMIN';
+            customerId = undefined;
+            email = 'admin@brightloop.com';
+          } else if (headerLower.includes('staff')) {
+            role = 'STAFF';
+            customerId = undefined;
+            email = 'staff@brightloop.com';
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(
+            JSON.stringify({
+              success: true,
+              message: 'User profile retrieved successfully',
+              data: {
+                id: `usr_${role.toLowerCase()}_01`,
+                email,
+                role,
+                customerId
+              }
+            })
+          );
+        }
+
         // 1. GET /api/v1/customers (List & search)
         if (pathname === '/api/v1/customers') {
           if (search.toLowerCase().includes('rahul sharma')) {

@@ -88,6 +88,23 @@ export const DEMO_POLICY_FIXTURES: KnowledgeDocument[] = [
         citation: 'Demo Enterprise Terms Example Addendum C'
       }
     ]
+  },
+  {
+    id: 'demo_executive_margins',
+    title: '[DEMO FIXTURE] Executive Financial Margins & Target Metrics',
+    category: 'BILLING_TERMS',
+    allowedRoles: ['ADMIN'], // Restricted from CUSTOMER and STAFF
+    lastUpdated: '2026-10-01',
+    isDemoFixture: true,
+    disclaimer: '[DEMO / TEST FIXTURE ONLY - NOT AN AUTHORITATIVE COMPANY POLICY]',
+    sections: [
+      {
+        heading: 'Executive Financial Margin Targets',
+        content:
+          '[DEMO FIXTURE] Executive target gross margin for Enterprise SaaS subscriptions is 82% with customer payback period under 8 months.',
+        citation: 'Demo Executive Guidelines Example Section 9'
+      }
+    ]
   }
 ];
 
