@@ -133,6 +133,7 @@ export function authorizeOwnership(resourceType, paramKey = 'id') {
               where: { id: resourceId },
               select: {
                 id: true,
+                customerId: true,
                 invoice: {
                   select: { customerId: true }
                 }
@@ -146,7 +147,8 @@ export function authorizeOwnership(resourceType, paramKey = 'id') {
               });
             }
 
-            if (payment.invoice.customerId !== customerId) {
+            const ownerId = payment.customerId || payment.invoice?.customerId;
+            if (ownerId !== customerId) {
               return errorResponse(res, {
                 message: 'Access denied: you do not own this payment record',
                 statusCode: 403

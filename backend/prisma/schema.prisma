@@ -98,13 +98,25 @@ enum PaymentMethod {
   BANK_TRANSFER
   ACH
   MANUAL
+  CASH
+  UPI
+  CARD
+  OTHER
 }
 
 enum PaymentStatus {
   PENDING
+  PROCESSING
   SUCCEEDED
   FAILED
+  PARTIALLY_REFUNDED
   REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
 }
 
 // -------------------------------------------------------------
@@ -187,6 +199,7 @@ model Customer {
   quotations        Quotation[]
   subscriptions     Subscription[]
   invoices          Invoice[]
+  payments          Payment[]
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
@@ -503,18 +516,66 @@ model Discount {
 
 model Payment {
   id                   String        @id @default(cuid())
+  paymentReference     String        @unique
+  customerId           String
+  customer             Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   invoiceId            String
   invoice              Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  paymentMethod        PaymentMethod @default(CREDIT_CARD)
+  paymentMethod        PaymentMethod @default(MANUAL)
+  provider             String        @default("MANUAL")
+  providerTransactionId String?
   transactionReference String?
-  amountInCents        Int
-  currency             String        @default("USD")
+  amount               Decimal       @default(0.00) @db.Decimal(12, 2)
+  amountInCents        Int           @default(0)
+  currency             String        @default("INR")
   status               PaymentStatus @default(PENDING)
+  paymentDate          DateTime      @default(now())
   failureReason        String?
   paidAt               DateTime?
+  idempotencyKey       String?       @unique
+  metadata             Json?
+  refunds              Refund[]
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
+  @@index([customerId, status])
   @@index([invoiceId, status])
+  @@index([paymentReference])
+  @@index([providerTransactionId])
+  @@index([createdAt, id])
+}
+
+model Refund {
+  id               String       @id @default(cuid())
+  refundReference  String       @unique
+  paymentId        String
+  payment          Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amount           Decimal      @default(0.00) @db.Decimal(12, 2)
+  amountInCents    Int          @default(0)
+  currency         String       @default("INR")
+  reason           String?
+  status           RefundStatus @default(SUCCEEDED)
+  providerRefundId String?
+  idempotencyKey   String?      @unique
+  metadata         Json?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([paymentId])
+  @@index([createdAt, id])
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventId     String   @unique
+  eventType   String
+  status      String   @default("PROCESSED")
+  payload     Json?
+  processedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([provider, eventId])
+  @@index([createdAt])
 }
 

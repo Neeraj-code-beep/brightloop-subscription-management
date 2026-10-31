@@ -349,20 +349,54 @@ Calculation entities for regional taxation and promotion rules.
 
 ---
 
-### 2.8 Payment
-Financial transactions reconciling open invoices.
+### 2.8 Payment & Reconciliation
+Financial transactions reconciling open invoices, audit trails, and gateway webhooks.
 
 - **Payment**
   - `id`: `String` (PK, e.g. `pay_...`)
+  - `paymentReference`: `String` (Unique, e.g. `PAY-000001`)
   - `invoiceId`: `String` (FK -> `Invoice.id`)
-  - `paymentMethod`: `Enum` (`CREDIT_CARD`, `BANK_TRANSFER`, `ACH`, `MANUAL`)
-  - `transactionReference`: `String?` (External payment gateway ID or check reference)
+  - `customerId`: `String?` (FK -> `Customer.id`)
+  - `paymentMethod`: `Enum` (`CREDIT_CARD`, `BANK_TRANSFER`, `ACH`, `MANUAL`, `CASH`, `UPI`, `CARD`, `OTHER`)
+  - `provider`: `String?` (e.g. `RAZORPAY`, `STRIPE`, `MANUAL`)
+  - `providerTransactionId`: `String?`
+  - `transactionReference`: `String?`
+  - `amount`: `Decimal(12,2)`
   - `amountInCents`: `Int`
-  - `currency`: `String`
-  - `status`: `Enum` (`PENDING`, `SUCCEEDED`, `FAILED`, `REFUNDED`)
+  - `currency`: `String` (ISO 4217, default `INR`)
+  - `status`: `Enum` (`PENDING`, `PROCESSING`, `SUCCEEDED`, `FAILED`, `PARTIALLY_REFUNDED`, `REFUNDED`)
   - `failureReason`: `String?`
+  - `paymentDate`: `DateTime`
   - `paidAt`: `DateTime?`
+  - `idempotencyKey`: `String?` (Unique)
+  - `metadata`: `Json?`
   - `createdAt`: `DateTime`
+  - `updatedAt`: `DateTime`
+
+- **Refund**
+  - `id`: `String` (PK, e.g. `ref_...`)
+  - `refundReference`: `String` (Unique, e.g. `REF-000001`)
+  - `paymentId`: `String` (FK -> `Payment.id`)
+  - `amount`: `Decimal(12,2)`
+  - `amountInCents`: `Int`
+  - `currency`: `String` (default `INR`)
+  - `reason`: `String?`
+  - `status`: `Enum` (`PENDING`, `SUCCEEDED`, `FAILED`)
+  - `providerRefundId`: `String?`
+  - `idempotencyKey`: `String?` (Unique)
+  - `metadata`: `Json?`
+  - `createdAt`: `DateTime`
+  - `updatedAt`: `DateTime`
+
+- **WebhookEvent**
+  - `id`: `String` (PK, e.g. `whe_...`)
+  - `provider`: `String` (e.g. `RAZORPAY`)
+  - `eventId`: `String` (Unique)
+  - `eventType`: `String`
+  - `status`: `String` (default `PROCESSED`)
+  - `payload`: `Json`
+  - `createdAt`: `DateTime`
+  - `updatedAt`: `DateTime`
 
 ---
 

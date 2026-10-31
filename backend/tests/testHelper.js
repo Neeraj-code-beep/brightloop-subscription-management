@@ -11,6 +11,8 @@ export function createMockPrisma() {
     invoiceItems: [],
     subscriptions: [],
     payments: [],
+    refunds: [],
+    webhookEvents: [],
     products: [],
     productVariants: [],
     plans: [],
@@ -923,6 +925,13 @@ export function createMockPrisma() {
           if (include?.items) {
             res.items = state.invoiceItems.filter(item => item.invoiceId === inv.id);
           }
+          if (include?.payments) {
+            let pays = state.payments.filter(p => p.invoiceId === inv.id);
+            if (include.payments.where?.status) {
+              pays = pays.filter(p => p.status === include.payments.where.status);
+            }
+            res.payments = pays.map(p => ({ ...p }));
+          }
           return projectSelect(res, select);
         });
       },
@@ -1017,44 +1026,231 @@ export function createMockPrisma() {
     },
 
     payment: {
-      findUnique: async ({ where }) => {
-        const p = state.payments.find(pay => pay.id === where.id);
+      findUnique: async ({ where, include, select }) => {
+        let p = null;
+        if (where.id) p = state.payments.find(pay => pay.id === where.id);
+        else if (where.paymentReference) p = state.payments.find(pay => pay.paymentReference === where.paymentReference);
+        else if (where.idempotencyKey) p = state.payments.find(pay => pay.idempotencyKey === where.idempotencyKey);
         if (!p) return null;
-        const inv = state.invoices.find(i => i.id === p.invoiceId);
-        return { ...p, invoice: inv };
+
+        const res = { ...p };
+        if (include?.invoice) {
+          const inv = state.invoices.find(i => i.id === p.invoiceId);
+          res.invoice = inv ? { ...inv } : null;
+          if (res.invoice && include.invoice.include?.customer) {
+            res.invoice.customer = state.customers.find(c => c.id === res.invoice.customerId) || null;
+          }
+        }
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === p.customerId) || null;
+        }
+        if (include?.refunds) {
+          res.refunds = state.refunds.filter(r => r.paymentId === p.id).map(r => ({ ...r }));
+        }
+        return projectSelect(res, select);
       },
-      findMany: async ({ where = {}, skip = 0, take = 20, select }) => {
+      findFirst: async ({ where = {}, orderBy, select }) => {
         let list = [...state.payments];
+        if (where.paymentReference?.startsWith) {
+          list = list.filter(p => p.paymentReference && p.paymentReference.startsWith(where.paymentReference.startsWith));
+        }
+        if (where.providerTransactionId) {
+          list = list.filter(p => p.providerTransactionId === where.providerTransactionId);
+        }
+        if (where.idempotencyKey) {
+          list = list.filter(p => p.idempotencyKey === where.idempotencyKey);
+        }
+        const sorted = sortArray(list, orderBy);
+        return sorted[0] ? projectSelect({ ...sorted[0] }, select) : null;
+      },
+      findMany: async ({ where = {}, cursor, skip = 0, take = 20, orderBy, include, select }) => {
+        let list = [...state.payments];
+        if (where.customerId) list = list.filter(p => p.customerId === where.customerId);
+        if (where.invoiceId) list = list.filter(p => p.invoiceId === where.invoiceId);
+        if (where.status) list = list.filter(p => p.status === where.status);
+        if (where.paymentMethod) list = list.filter(p => p.paymentMethod === where.paymentMethod);
+        if (where.provider) list = list.filter(p => p.provider === where.provider);
+        if (where.providerTransactionId) list = list.filter(p => p.providerTransactionId === where.providerTransactionId);
         if (where.invoice?.customerId) {
           list = list.filter(p => {
             const inv = state.invoices.find(i => i.id === p.invoiceId);
             return inv && inv.customerId === where.invoice.customerId;
           });
         }
-        return list.slice(skip, skip + take).map(p => {
-          const inv = state.invoices.find(i => i.id === p.invoiceId);
-          return projectSelect({ ...p, invoice: inv }, select);
+        if (where.OR) {
+          list = list.filter(p => {
+            return where.OR.some(cond => {
+              if (cond.paymentReference?.contains) {
+                return p.paymentReference?.toLowerCase().includes(String(cond.paymentReference.contains).toLowerCase());
+              }
+              if (cond.providerTransactionId?.contains) {
+                return p.providerTransactionId?.toLowerCase().includes(String(cond.providerTransactionId.contains).toLowerCase());
+              }
+              return false;
+            });
+          });
+        }
+
+        const sorted = sortArray(list, orderBy);
+        let startIndex = 0;
+        if (cursor?.id) {
+          const idx = sorted.findIndex(p => p.id === cursor.id);
+          if (idx !== -1) startIndex = idx + (skip || 0);
+        } else if (skip) {
+          startIndex = skip;
+        }
+
+        const sliced = sorted.slice(startIndex, startIndex + take);
+        return sliced.map(p => {
+          const res = { ...p };
+          if (include?.invoice) {
+            res.invoice = state.invoices.find(i => i.id === p.invoiceId) || null;
+            if (res.invoice && include.invoice.include?.customer) {
+              res.invoice.customer = state.customers.find(c => c.id === res.invoice.customerId) || null;
+            }
+          }
+          if (include?.customer) {
+            res.customer = state.customers.find(c => c.id === p.customerId) || null;
+          }
+          if (include?.refunds) {
+            res.refunds = state.refunds.filter(r => r.paymentId === p.id).map(r => ({ ...r }));
+          }
+          return projectSelect(res, select);
         });
       },
       count: async ({ where = {} } = {}) => {
         let list = [...state.payments];
+        if (where.customerId) list = list.filter(p => p.customerId === where.customerId);
+        if (where.invoiceId) list = list.filter(p => p.invoiceId === where.invoiceId);
+        if (where.status) list = list.filter(p => p.status === where.status);
+        if (where.paymentMethod) list = list.filter(p => p.paymentMethod === where.paymentMethod);
+        if (where.provider) list = list.filter(p => p.provider === where.provider);
         if (where.invoice?.customerId) {
           list = list.filter(p => {
             const inv = state.invoices.find(i => i.id === p.invoiceId);
             return inv && inv.customerId === where.invoice.customerId;
           });
         }
+        if (where.OR) {
+          list = list.filter(p => {
+            return where.OR.some(cond => {
+              if (cond.paymentReference?.contains) {
+                return p.paymentReference?.toLowerCase().includes(String(cond.paymentReference.contains).toLowerCase());
+              }
+              if (cond.providerTransactionId?.contains) {
+                return p.providerTransactionId?.toLowerCase().includes(String(cond.providerTransactionId.contains).toLowerCase());
+              }
+              return false;
+            });
+          });
+        }
         return list.length;
       },
-      create: async ({ data }) => {
+      create: async ({ data, include, select }) => {
+        const id = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const p = {
-          id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          id,
           ...data,
           createdAt: new Date(),
           updatedAt: new Date()
         };
         state.payments.push(p);
-        return p;
+        const res = { ...p };
+        if (include?.invoice) {
+          res.invoice = state.invoices.find(i => i.id === p.invoiceId) || null;
+          if (res.invoice && include.invoice.include?.customer) {
+            res.invoice.customer = state.customers.find(c => c.id === res.invoice.customerId) || null;
+          }
+        }
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === p.customerId) || null;
+        }
+        if (include?.refunds) {
+          res.refunds = [];
+        }
+        return projectSelect(res, select);
+      },
+      update: async ({ where, data, include, select }) => {
+        const idx = state.payments.findIndex(pay => pay.id === where.id);
+        if (idx === -1) throw new Error('Payment not found');
+        state.payments[idx] = { ...state.payments[idx], ...data, updatedAt: new Date() };
+        const res = { ...state.payments[idx] };
+        if (include?.invoice) {
+          res.invoice = state.invoices.find(i => i.id === res.invoiceId) || null;
+          if (res.invoice && include.invoice.include?.customer) {
+            res.invoice.customer = state.customers.find(c => c.id === res.invoice.customerId) || null;
+          }
+        }
+        if (include?.customer) {
+          res.customer = state.customers.find(c => c.id === res.customerId) || null;
+        }
+        if (include?.refunds) {
+          res.refunds = state.refunds.filter(r => r.paymentId === res.id).map(r => ({ ...r }));
+        }
+        return projectSelect(res, select);
+      }
+    },
+
+    refund: {
+      findUnique: async ({ where, select }) => {
+        let r = null;
+        if (where.id) r = state.refunds.find(x => x.id === where.id);
+        else if (where.refundReference) r = state.refunds.find(x => x.refundReference === where.refundReference);
+        else if (where.idempotencyKey) r = state.refunds.find(x => x.idempotencyKey === where.idempotencyKey);
+        if (!r) return null;
+        return projectSelect({ ...r }, select);
+      },
+      findFirst: async ({ where = {}, orderBy, select }) => {
+        let list = [...state.refunds];
+        if (where.refundReference?.startsWith) {
+          list = list.filter(r => r.refundReference && r.refundReference.startsWith(where.refundReference.startsWith));
+        }
+        const sorted = sortArray(list, orderBy);
+        return sorted[0] ? projectSelect({ ...sorted[0] }, select) : null;
+      },
+      findMany: async ({ where = {}, orderBy, select }) => {
+        let list = [...state.refunds];
+        if (where.paymentId) list = list.filter(r => r.paymentId === where.paymentId);
+        if (where.status) list = list.filter(r => r.status === where.status);
+        const sorted = sortArray(list, orderBy);
+        return sorted.map(r => projectSelect({ ...r }, select));
+      },
+      create: async ({ data, select }) => {
+        const id = `ref_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const r = {
+          id,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.refunds.push(r);
+        return projectSelect({ ...r }, select);
+      },
+      update: async ({ where, data, select }) => {
+        const idx = state.refunds.findIndex(x => x.id === where.id);
+        if (idx === -1) throw new Error('Refund not found');
+        state.refunds[idx] = { ...state.refunds[idx], ...data, updatedAt: new Date() };
+        return projectSelect({ ...state.refunds[idx] }, select);
+      }
+    },
+
+    webhookEvent: {
+      findUnique: async ({ where }) => {
+        let ev = null;
+        if (where.eventId) ev = state.webhookEvents.find(e => e.eventId === where.eventId);
+        else if (where.id) ev = state.webhookEvents.find(e => e.id === where.id);
+        return ev ? { ...ev } : null;
+      },
+      create: async ({ data }) => {
+        const id = `whe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const ev = {
+          id,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        state.webhookEvents.push(ev);
+        return { ...ev };
       }
     },
 

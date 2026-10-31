@@ -469,10 +469,29 @@ Endpoints returning collections support cursor or page-based pagination using th
   - Recurring job scans for `ISSUED` or `PARTIALLY_PAID` invoices past their `dueDate` with `amountDue > 0` and transitions status to `OVERDUE` without modifying totals.
 
 ### 5.9 Payments (`/api/v1/payments`)
-- `GET    /api/v1/payments` - List payments and transactions.
-- `POST   /api/v1/payments` - Record payment against invoice.
-- `GET    /api/v1/payments/:id` - Payment transaction details.
-- `POST   /api/v1/payments/:id/refund` - Process full or partial refund.
+- `POST   /api/v1/payments` - Record a manual payment against an issued invoice (ADMIN, STAFF).
+  - Body: `{ "invoiceId": string, "amount": number|string, "paymentMethod": "CASH"|"BANK_TRANSFER"|"UPI"|"CARD"|"OTHER", "customerId"?: string, "paymentDate"?: string, "provider"?: string, "providerTransactionId"?: string, "transactionReference"?: string, "notes"?: string, "idempotencyKey"?: string, "metadata"?: object }`
+  - Response: `201 Created` with Payment record. Atomically updates invoice `amountPaid`, `amountDue`, and transitions status (`PARTIALLY_PAID` or `PAID`). Idempotent replay returns `200 OK`.
+- `GET    /api/v1/payments` - List payments with dual pagination, search, and filters (ADMIN, STAFF, CUSTOMER own).
+  - Query params: `page`, `limit`, `cursor`, `customerId`, `invoiceId`, `status`, `paymentMethod`, `provider`, `startDate`, `endDate`, `search`, `sortBy`, `sortOrder`.
+  - Customer role automatically scoped to `customerId: req.user.customerId`.
+- `GET    /api/v1/payments/:id` - Payment details including invoice, customer, and refund history (ADMIN, STAFF, CUSTOMER own).
+- `POST   /api/v1/payments/:id/refund` - Process full or partial refund (ADMIN, STAFF).
+  - Body: `{ "amount": number|string, "reason"?: string, "providerRefundId"?: string, "idempotencyKey"?: string, "metadata"?: object }`
+  - Validates `amount <= remaining refundable amount`. Creates `Refund` record, updates Payment status (`PARTIALLY_REFUNDED` or `REFUNDED`), reverses invoice `amountPaid` and `amountDue`, and reverts invoice status (`PARTIALLY_PAID` or `ISSUED`/`OVERDUE`).
+- `POST   /api/v1/payments/:id/mark-failed` - Record payment failure (ADMIN, STAFF).
+  - Body: `{ "failureReason": string }`
+  - Rejects marking an already `SUCCEEDED` payment as failed.
+- `GET    /api/v1/invoices/:id/payments` - List all payment attempts and transactions for a specific invoice.
+- `GET    /api/v1/customers/:id/payments` - List payment history for a customer with dual pagination.
+- `POST   /api/v1/payments/webhooks/:provider` - Public gateway webhook receiver (`provider`: `razorpay`).
+  - Verifies HMAC SHA256 signature (`x-razorpay-signature`) using raw payload body and `RAZORPAY_WEBHOOK_SECRET`.
+  - Deduplicates events via `WebhookEvent` table (`eventId`).
+  - Handles `payment.captured`, `order.paid`, `payment.failed`, `refund.processed`.
+- `GET    /api/v1/payments/reconciliation/summary` - Aggregated financial reconciliation summary (ADMIN, STAFF).
+  - Returns `totalCollected`, `totalRefunded`, `totalRecordedAmount`, `totalInvoicesAudited`, `mismatchedInvoicesCount`, `isReconciled`.
+- `GET    /api/v1/payments/reconciliation/unmatched` - List unmatched/orphaned payments and invoice balance mismatches (ADMIN, STAFF).
+- `POST   /api/v1/payments/reconciliation/run` - Execute reconciliation sweep and repair drifted invoice balances atomically (ADMIN only).
 
 ### 5.10 Analytics & Dashboard (`/api/v1/analytics`)
 - `GET    /api/v1/analytics/dashboard` - Executive metrics: MRR, ARR, active subscriptions, churn rate, outstanding dues.

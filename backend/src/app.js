@@ -28,7 +28,11 @@ app.use(cors({
   origin: config.frontendUrl,
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Health Check Endpoints
 app.get('/health', (req, res) => {

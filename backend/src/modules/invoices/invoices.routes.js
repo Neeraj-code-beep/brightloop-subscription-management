@@ -4,6 +4,7 @@ import { authorize } from '../../middleware/authorize.js';
 import { authorizeOwnership } from '../../middleware/ownership.js';
 import { validateBody } from '../../middleware/validate.js';
 import { invoicesController } from './invoices.controller.js';
+import { paymentsController } from '../payments/payments.controller.js';
 import {
   createInvoiceSchema,
   updateInvoiceSchema,
@@ -59,4 +60,11 @@ invoicesRouter.post(
   authorize('ADMIN', 'STAFF'),
   validateBody(voidInvoiceSchema),
   invoicesController.voidInvoice.bind(invoicesController)
+);
+
+// GET /api/v1/invoices/:id/payments - Payments for an invoice
+invoicesRouter.get(
+  '/:id/payments',
+  authorizeOwnership('invoice'),
+  paymentsController.getInvoicePayments.bind(paymentsController)
 );
