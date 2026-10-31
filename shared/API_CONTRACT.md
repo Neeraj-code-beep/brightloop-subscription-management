@@ -141,13 +141,22 @@ Endpoints returning collections support cursor or page-based pagination using th
 ## 5. Core Endpoints Reference
 
 ### 5.1 Authentication (`/api/v1/auth`)
-- `POST /api/v1/auth/register` - Register a new internal staff or customer account (Admin only for staff).
-- `POST /api/v1/auth/login` - Authenticate with email/password; returns access token & sets HTTP-only refresh cookie.
-- `POST /api/v1/auth/refresh` - Issue new access token using valid refresh token.
-- `POST /api/v1/auth/logout` - Invalidate session & clear refresh cookie.
+- `POST /api/v1/auth/register` - Public customer registration (name, email, password). Always assigns `CUSTOMER` role. Returns access & refresh tokens.
+- `POST /api/v1/auth/login` - Authenticate with email/password; returns access token, rotated refresh token & safe user profile.
+- `POST /api/v1/auth/refresh` - Issue new access token and rotate refresh token. Invalidates old refresh token.
+- `POST /api/v1/auth/logout` - Invalidate current session & revoke refresh token.
+- `POST /api/v1/auth/forgot-password` - Request cryptographically secure password reset token (returns generic message to prevent email enumeration).
+- `POST /api/v1/auth/reset-password` - Reset password with valid token. Automatically revokes existing sessions for security.
 - `GET  /api/v1/auth/me` - Retrieve current authenticated user profile & permissions.
 
-### 5.2 Customers (`/api/v1/customers`)
+### 5.2 User & Staff Management (`/api/v1/users`)
+- `POST  /api/v1/users/staff` - Admin only: Provision new `STAFF` account (name, email, password).
+- `GET   /api/v1/users` - Admin only: List all user accounts with pagination & filtering (`role`, `status`, `search`).
+- `GET   /api/v1/users/:id` - Admin or self: Retrieve specific user profile details.
+- `PATCH /api/v1/users/:id` - Admin or self: Update user details (prevents self-promotion for non-admins).
+- `PATCH /api/v1/users/:id/status` - Admin only: Activate or deactivate account (revokes active sessions on deactivation).
+
+### 5.3 Customers (`/api/v1/customers`)
 - `GET    /api/v1/customers` - List customers (paginated, filterable by status/search).
 - `POST   /api/v1/customers` - Create customer record.
 - `GET    /api/v1/customers/:id` - Fetch single customer with summary stats.

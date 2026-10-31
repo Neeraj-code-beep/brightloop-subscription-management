@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { config } from './config/index.js';
 import { successResponse, errorResponse } from './utils/response.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -19,6 +20,9 @@ import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 
 export const app = express();
 
+// Security Headers
+app.use(helmet());
+
 // Global Middleware
 app.use(cors({
   origin: config.frontendUrl,
@@ -32,7 +36,7 @@ app.get('/health', (req, res) => {
     message: 'Backend service is healthy',
     data: {
       status: 'UP',
-      service: 'sms-backend',
+      service: 'subpilot-backend',
       timestamp: new Date().toISOString(),
       environment: config.nodeEnv
     }
@@ -44,7 +48,7 @@ app.get('/api/v1/health', (req, res) => {
     message: 'Backend API v1 is healthy',
     data: {
       status: 'UP',
-      service: 'sms-backend',
+      service: 'subpilot-backend',
       version: 'v1',
       timestamp: new Date().toISOString()
     }
@@ -75,4 +79,3 @@ app.use((req, res) => {
 
 // Central Error Handler
 app.use(errorHandler);
-
