@@ -71,7 +71,19 @@ export class AnalyticsService {
    */
   async safeAggregate(model, options) {
     if (typeof model?.aggregate === 'function') {
-      return await model.aggregate(options);
+      try {
+        return await model.aggregate(options);
+      } catch (err) {
+        if (err.message?.includes('refundedAmount') || err.message?.includes('Unknown field')) {
+          const cleanOptions = { ...options };
+          if (cleanOptions._sum) {
+            cleanOptions._sum = { ...cleanOptions._sum };
+            delete cleanOptions._sum.refundedAmount;
+          }
+          return await model.aggregate(cleanOptions);
+        }
+        throw err;
+      }
     }
     // Only fall back to in-memory summation if model.aggregate is not implemented (e.g. partial test mocks)
     if (typeof model?.findMany === 'function') {
@@ -119,7 +131,7 @@ export class AnalyticsService {
       this.prisma.customer.count({ where: { isActive: true } }),
       this.prisma.product.count(),
       this.prisma.subscription.count({ where: { status: 'ACTIVE' } }),
-      this.prisma.subscription.count({ where: { status: { in: ['TRIALING', 'PENDING'] } } }),
+      this.prisma.subscription.count({ where: { status: 'TRIALING' } }),
       this.prisma.subscription.count({ where: { status: 'CANCELED' } }),
       this.prisma.quotation.count(),
       this.prisma.quotation.count({ where: { status: 'ACCEPTED' } }),
@@ -136,7 +148,7 @@ export class AnalyticsService {
         _sum: { amount: true, refundedAmount: true }
       }),
       this.safeAggregate(this.prisma.refund, {
-        where: { status: { in: ['SUCCEEDED', 'COMPLETED'] } },
+        where: { status: 'SUCCEEDED' },
         _sum: { amount: true }
       })
     ]);
@@ -144,7 +156,6 @@ export class AnalyticsService {
     const totalInvoicedAmount = new Prisma.Decimal(invoiceAgg._sum?.totalAmount || 0);
     const refundedFromRefunds = new Prisma.Decimal(refundAgg._sum?.amount || 0);
     const refundedFromPayments = new Prisma.Decimal(paymentAgg._sum?.refundedAmount || 0);
-    // Authoritative refund source: Refund records first, payment refundedAmount only if no refund records exist
     const totalRefundedAmount = refundedFromRefunds.greaterThan(0)
       ? refundedFromRefunds
       : refundedFromPayments;
@@ -217,7 +228,7 @@ export class AnalyticsService {
           status: { in: ['SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'] },
           createdAt: { gte: start, lte: end }
         },
-        select: { id: true, amount: true, refundedAmount: true, createdAt: true }
+        select: { id: true, amount: true, createdAt: true }
       }),
       this.prisma.invoice.findMany({
         where: {
@@ -228,7 +239,7 @@ export class AnalyticsService {
       }),
       this.prisma.refund.findMany({
         where: {
-          status: { in: ['SUCCEEDED', 'COMPLETED'] },
+          status: 'SUCCEEDED',
           createdAt: { gte: start, lte: end }
         },
         select: { id: true, amount: true, createdAt: true }
@@ -238,11 +249,11 @@ export class AnalyticsService {
           status: { in: ['SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'] },
           createdAt: { gte: prevStart, lte: prevEnd }
         },
-        select: { amount: true, refundedAmount: true }
+        select: { amount: true }
       }),
       this.prisma.refund.findMany({
         where: {
-          status: { in: ['SUCCEEDED', 'COMPLETED'] },
+          status: 'SUCCEEDED',
           createdAt: { gte: prevStart, lte: prevEnd }
         },
         select: { amount: true }
@@ -957,12 +968,10 @@ export class AnalyticsService {
         let ref = new Prisma.Decimal(0);
         if (p.refunds && Array.isArray(p.refunds) && p.refunds.length > 0) {
           for (const r of p.refunds) {
-            if (r.status === 'SUCCEEDED' || r.status === 'COMPLETED') {
+            if (r.status === 'SUCCEEDED') {
               ref = ref.plus(new Prisma.Decimal(r.amount || 0));
             }
           }
-        } else if (p.refundedAmount) {
-          ref = new Prisma.Decimal(p.refundedAmount);
         }
         totalCollected = totalCollected.plus(amt);
         totalRefunded = totalRefunded.plus(ref);

@@ -34,7 +34,7 @@ export class QuotationsService {
         email: quotation.customer.email,
         phone: quotation.customer.phone
       } : null,
-      status: quotation.status || 'DRAFT',
+      status: quotation.subscription ? 'CONVERTED' : (quotation.status || 'DRAFT'),
       currency: quotation.currency || 'INR',
       subtotal: new Prisma.Decimal(quotation.subtotal || 0).toFixed(2),
       discountAmount: new Prisma.Decimal(quotation.discountAmount || 0).toFixed(2),
@@ -594,7 +594,7 @@ export class QuotationsService {
     }
 
     // Idempotent check: if already converted and subscription exists, return it
-    if (quotation.status === 'CONVERTED' || quotation.subscription) {
+    if (quotation.subscription) {
       const existingSub = await this.prisma.subscription.findUnique({
         where: { quotationId: id },
         include: {
@@ -691,9 +691,8 @@ export class QuotationsService {
         });
 
         // Update Quotation status to CONVERTED
-        const updatedQuotation = await tx.quotation.update({
+        const updatedQuotation = await tx.quotation.findUnique({
           where: { id: quotation.id },
-          data: { status: 'CONVERTED' },
           include: {
             customer: true,
             items: {

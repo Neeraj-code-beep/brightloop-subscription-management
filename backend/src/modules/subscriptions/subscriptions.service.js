@@ -858,7 +858,7 @@ export class SubscriptionsService {
           isDuplicate: false,
           message: `Plan successfully migrated to '${targetPlan.name}'.`
         };
-      });
+      }, { maxWait: 15000, timeout: 30000 });
     } catch (err) {
       if (err.code === 'P2002' && idempotencyKey && (err.meta?.target?.includes('idempotencyKey') || String(err.message).includes('idempotencyKey'))) {
         const existingMigration = await this.prisma.subscriptionMigration.findUnique({

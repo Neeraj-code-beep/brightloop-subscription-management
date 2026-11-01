@@ -44,23 +44,36 @@ export class InvoicesService {
    */
   async generateInvoiceNumber(tx) {
     const db = tx || this.prisma;
-    const lastInvoice = await db.invoice.findFirst({
+    const candidates = await db.invoice.findMany({
       where: {
         invoiceNumber: { startsWith: 'INV-' }
       },
-      orderBy: { invoiceNumber: 'desc' },
       select: { invoiceNumber: true }
     });
 
-    let nextNumber = 1;
-    if (lastInvoice?.invoiceNumber) {
-      const match = lastInvoice.invoiceNumber.match(/^INV-(\d+)$/);
+    let maxNumber = 0;
+    for (const inv of candidates) {
+      const match = inv.invoiceNumber?.match(/^INV-(\d+)$/);
       if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNumber) {
+          maxNumber = num;
+        }
       }
     }
 
-    return `INV-${String(nextNumber).padStart(6, '0')}`;
+    let nextNumber = maxNumber + 1;
+    while (true) {
+      const candidateStr = `INV-${String(nextNumber).padStart(6, '0')}`;
+      const exists = await db.invoice.findUnique({
+        where: { invoiceNumber: candidateStr },
+        select: { id: true }
+      });
+      if (!exists) {
+        return candidateStr;
+      }
+      nextNumber++;
+    }
   }
 
   /**

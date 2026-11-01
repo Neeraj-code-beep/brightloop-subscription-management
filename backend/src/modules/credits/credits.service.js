@@ -321,6 +321,36 @@ export class CreditsService {
         }
       });
 
+      // Settle invoice if invoiceId was provided
+      if (invoiceId) {
+        const inv = await db.invoice.findUnique({
+          where: { id: invoiceId },
+          include: { payments: true, creditTransactions: true }
+        });
+        if (inv) {
+          const paymentsSum = (inv.payments || [])
+            .filter(p => p.status === 'SUCCEEDED')
+            .reduce((acc, p) => acc.plus(new Prisma.Decimal(p.amount || 0)), new Prisma.Decimal(0));
+          const creditsSum = (inv.creditTransactions || [])
+            .filter(c => c.type === 'INVOICE_APPLICATION')
+            .reduce((acc, c) => acc.plus(new Prisma.Decimal(c.amount || 0).abs()), new Prisma.Decimal(0));
+          const totalSettled = paymentsSum.plus(creditsSum);
+          const total = new Prisma.Decimal(inv.totalAmount || 0);
+          const newDue = Prisma.Decimal.max(0, total.minus(totalSettled));
+          const newStatus = newDue.lte(0) ? 'PAID' : (totalSettled.gt(0) ? 'PARTIALLY_PAID' : inv.status);
+
+          await db.invoice.update({
+            where: { id: invoiceId },
+            data: {
+              amountPaid: totalSettled,
+              amountDue: newDue,
+              status: newStatus,
+              paidAt: newDue.lte(0) ? (inv.paidAt || new Date()) : null
+            }
+          });
+        }
+      }
+
       return this.formatTransaction(transaction);
     };
 

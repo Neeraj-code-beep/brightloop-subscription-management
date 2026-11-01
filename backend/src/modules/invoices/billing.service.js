@@ -133,7 +133,7 @@ export class BillingService {
     if (sub.items && sub.items.length > 0) {
       for (const item of sub.items) {
         // Skip primary plan item if already captured in recurringPrice
-        if (item.planId === sub.planId && sub.items.length === 1) {
+        if (item.planId === sub.planId || item.planId === sub.scheduledPlanId || sub.items.length === 1) {
           continue;
         }
         const itemPrice = new Prisma.Decimal(item.unitPrice || 0);
@@ -266,7 +266,7 @@ export class BillingService {
           });
 
           return { invoice, subscription: updatedSub };
-        });
+        }, { maxWait: 15000, timeout: 30000 });
 
         return {
           invoice: invoicesService.formatInvoiceResponse(result.invoice),
